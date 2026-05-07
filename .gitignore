@@ -10,3 +10,7 @@ PYCACHE/
 
 # Virtual environments
 .venv
+
+
+*.pdf
+*.csv
