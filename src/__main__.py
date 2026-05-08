@@ -6,13 +6,13 @@ showing when each employee was clocked in. Each employee is color-coded,
 and data is organized by calendar week (Monday-Sunday).
 """
 
-import colorsys
+from colorsys import hsv_to_rgb
 from datetime import datetime, time, timedelta
+from decimal import Decimal
 from pathlib import Path
-from typing import Dict, List, Tuple
 
-import pandas as pd
 from fpdf import FPDF
+from pandas import DataFrame, concat, notna, read_csv, to_datetime
 
 # Constants
 CSV_FILE = "Time-Clock-Entry-Report.csv"
@@ -20,23 +20,29 @@ OUTPUT_FILE = "employee-timeline.pdf"
 DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
 
 
-def load_and_parse_data(csv_path: Path) -> pd.DataFrame:
+def load_and_parse_data(csv_path: Path) -> DataFrame:
   """Load CSV and parse datetime columns."""
-  df = pd.read_csv(csv_path)
+  df = read_csv(csv_path)
 
   # Filter out summary rows (Grand Totals, empty rows)
   df = df[df["Employee Name"].notna() & (df["Employee Name"] != "")]
 
   # Parse datetime columns
-  df["In Time"] = pd.to_datetime(df["In Time"], format="%m/%d/%Y %I:%M %p")
+  df["In Time"] = to_datetime(df["In Time"], format="%m/%d/%Y %I:%M %p")
 
   # Handle missing Out Time - set to 9 PM on the same day
-  df["Out Time"] = df["Out Time"].apply(lambda x: x if pd.notna(x) and x != "N/A" else None)
-  df["Out Time Parsed"] = pd.to_datetime(df["Out Time"], format="%m/%d/%Y %I:%M %p", errors="coerce")
+  df["Out Time"] = df["Out Time"].apply(lambda x: x if notna(x) and x != "N/A" else None)
+  df["Out Time Parsed"] = to_datetime(df["Out Time"], format="%m/%d/%Y %I:%M %p", errors="coerce")
 
   # For missing Out Time, set to 9 PM on the In Time date
   mask = df["Out Time Parsed"].isna()
   df.loc[mask, "Out Time Parsed"] = df.loc[mask, "In Time"].apply(lambda dt: datetime.combine(dt.date(), DEFAULT_OUT_TIME))
+
+  # Parse "Time Worked" column to Decimal for precision
+  # Format: "1.74 Hours" -> Decimal('1.74')
+  df["Hours Worked"] = df["Time Worked"].apply(
+    lambda x: Decimal(str(x).replace(" Hours", "").strip()) if notna(x) and x != "" else Decimal(0)  # type: ignore
+  )
 
   # Extract date for grouping
   df["Date"] = df["In Time"].dt.date
@@ -44,7 +50,7 @@ def load_and_parse_data(csv_path: Path) -> pd.DataFrame:
   return df
 
 
-def generate_employee_colors(employees: List[str]) -> Dict[str, Tuple[int, int, int]]:
+def generate_employee_colors(employees: list[str]) -> dict[str, tuple[int, int, int]]:
   """Generate distinct colors for each employee using HSV color space."""
   num_employees = len(employees)
   colors = {}
@@ -52,18 +58,18 @@ def generate_employee_colors(employees: List[str]) -> Dict[str, Tuple[int, int, 
   for i, employee in enumerate(sorted(employees)):
     # Distribute hues evenly around the color wheel
     hue = i / num_employees
-    # Use high saturation and medium-high value for vibrant, distinguishable colors
-    saturation = 0.7
-    value = 0.9
+    # Use high saturation and darker value for better contrast with white text
+    saturation = 0.85
+    value = 0.65
 
     # Convert HSV to RGB (0-1 range) then to 0-255
-    r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+    r, g, b = hsv_to_rgb(hue, saturation, value)
     colors[employee] = (int(r * 255), int(g * 255), int(b * 255))
 
   return colors
 
 
-def group_by_weeks(df: pd.DataFrame) -> Dict[Tuple, pd.DataFrame]:
+def group_by_weeks(df: DataFrame) -> dict[tuple, DataFrame]:
   """Group data by calendar weeks (Monday-Sunday)."""
   weeks = {}
 
@@ -91,9 +97,9 @@ def group_by_weeks(df: pd.DataFrame) -> Dict[Tuple, pd.DataFrame]:
   return sorted_weeks
 
 
-def calculate_time_range(df: pd.DataFrame) -> Tuple[time, time]:
+def calculate_time_range(df: DataFrame) -> tuple[time, time]:
   """Calculate the min and max times across all data for auto-fitted axis."""
-  all_times = pd.concat([df["In Time"].dt.time, df["Out Time Parsed"].dt.time])
+  all_times = concat([df["In Time"].dt.time, df["Out Time Parsed"].dt.time])
 
   min_time = all_times.min()
   max_time = all_times.max()
@@ -105,48 +111,117 @@ def calculate_time_range(df: pd.DataFrame) -> Tuple[time, time]:
   return time(min_hour, 0), time(min(max_hour, 23), 0 if max_hour < 24 else 59)
 
 
+def truncate_repeating_decimal(value: Decimal) -> str:
+  """Truncate a Decimal at the point where digits start repeating.
+
+  Examples:
+    24.21666666... -> "24.216"
+    26.33333... -> "26.3"
+    25.5 -> "25.5"
+  """
+  str_value = str(value)
+
+  # Split into integer and decimal parts
+  if "." not in str_value:
+    return str_value
+
+  integer_part, decimal_part = str_value.split(".")
+
+  if not decimal_part:
+    return integer_part
+
+  # Look for repeating patterns
+  # Check for single repeating digit first (most common: 3333, 6666)
+  for i in range(len(decimal_part) - 1):
+    if i > 0 and all(c == decimal_part[i] for c in decimal_part[i:]):
+      # Found repeating digit at position i
+      return f"{integer_part}.{decimal_part[: i + 1]}"
+
+  # Check for longer repeating patterns (e.g., 142857142857)
+  for pattern_len in range(1, len(decimal_part) // 2 + 1):
+    pattern = decimal_part[:pattern_len]
+    # Check if this pattern repeats for the rest of the string
+    repeats = True
+    for j in range(pattern_len, len(decimal_part), pattern_len):
+      chunk = decimal_part[j : j + pattern_len]
+      if chunk and chunk != pattern[: len(chunk)]:
+        repeats = False
+        break
+
+    if repeats and len(decimal_part) > pattern_len * 2:
+      # Pattern repeats at least twice
+      return f"{integer_part}.{pattern}"
+
+  # No repeating pattern found, return as-is
+  return str_value
+
+
 class TimelinePDF(FPDF):
   """Custom PDF class for rendering employee timelines."""
 
-  def __init__(self, employee_colors: Dict[str, Tuple[int, int, int]]):
-    super().__init__(orientation="L", unit="mm", format="A4")
+  def __init__(self, employee_colors: dict[str, tuple[int, int, int]]):
+    super().__init__(orientation="L", unit="mm", format="A4")  # Landscape orientation
     self.employee_colors = employee_colors
     self.set_auto_page_break(False)
 
-  def render_week(self, week_start, week_end, week_df: pd.DataFrame, min_time: time, max_time: time):
-    """Render a single week's timeline."""
+  def render_week(self, week_start, week_end, week_df: DataFrame, min_time: time, max_time: time):
+    """Render a single week's timeline with horizontal time axis."""
     self.add_page()
 
     # Page dimensions
     page_width = self.w
     page_height = self.h
 
-    # Margins and layout
-    margin_left = 50
-    margin_right = 60  # Extra space for legend
-    margin_top = 20
-    margin_bottom = 10
+    # Margins and layout (tightened for more timeline space)
+    margin_left = 35  # Space for day labels
+    margin_right = 5
+    margin_top = 25  # Space for time axis and header
+    margin_bottom = 35  # Space for legend
 
     # Timeline area
     timeline_width = page_width - margin_left - margin_right
-    timeline_height = page_height - margin_top - margin_bottom - 15  # 15 for header
+    timeline_height = page_height - margin_top - margin_bottom
 
     # Header
-    self.set_font("Helvetica", "B", 16)
-    self.set_xy(margin_left, margin_top)
-    self.cell(timeline_width, 10, f"Week of {week_start.strftime('%B %d, %Y')} - {week_end.strftime('%B %d, %Y')}", align="L")
+    self.set_font("Helvetica", "B", 12)
+    self.set_xy(margin_left, 5)
+    self.cell(timeline_width, 6, f"Week of {week_start.strftime('%B %d, %Y')} - {week_end.strftime('%B %d, %Y')}", align="C")
 
-    # Calculate time axis parameters
+    # Calculate time axis parameters (horizontal)
     start_hour = min_time.hour
     end_hour = max_time.hour + 1  # Include the end hour
     total_hours = end_hour - start_hour
     pixels_per_hour = timeline_width / total_hours
 
-    # Axis position
-    axis_y = margin_top + 15
+    # Time axis position (top)
+    axis_y = margin_top
 
-    # Draw time axis
-    self.set_font("Helvetica", "", 8)
+    # Get dates in this week (sorted)
+    dates_in_week = sorted(week_df["Date"].unique())
+    num_days = len(dates_in_week)
+
+    # Calculate row height for each day
+    row_height = timeline_height / max(num_days, 1)
+    block_height = min(row_height * 0.9, 40)  # Block height within row (increased for better visibility)
+
+    # Draw day labels on left
+    self.set_font("Helvetica", "B", 9)
+    for i, date in enumerate(dates_in_week):
+      row_y = axis_y + i * row_height
+      day_name = date.strftime("%a")  # Short day name (Mon, Tue, etc.)
+      date_str = date.strftime("%m/%d")
+
+      # Day name and date
+      label = f"{day_name} {date_str}"
+      self.set_xy(5, row_y + row_height / 2 - 2)
+      self.cell(margin_left - 10, 4, label, align="R")
+
+      # Horizontal gridline
+      self.set_draw_color(200, 200, 200)
+      self.line(margin_left, row_y, margin_left + timeline_width, row_y)
+
+    # Draw horizontal time axis
+    self.set_font("Helvetica", "", 7)
     self.set_draw_color(0, 0, 0)
     self.line(margin_left, axis_y, margin_left + timeline_width, axis_y)
 
@@ -160,7 +235,7 @@ class TimelinePDF(FPDF):
         hour_12 = 12
       am_pm = "AM" if hour < 12 else "PM"
       label = f"{hour_12}{am_pm}"
-      self.set_xy(x - 5, axis_y + 2)
+      self.set_xy(x - 5, axis_y - 8)
       self.cell(10, 4, label, align="C")
 
     # Draw vertical grid lines for each hour
@@ -169,38 +244,19 @@ class TimelinePDF(FPDF):
       x = margin_left + (hour - start_hour) * pixels_per_hour
       self.line(x, axis_y, x, axis_y + timeline_height)
 
-    # Get dates in this week (sorted)
-    dates_in_week = sorted(week_df["Date"].unique())
-
-    # Calculate row height
-    row_height = timeline_height / max(len(dates_in_week), 1)
-    block_height = min(row_height * 0.6, 15)  # Block height within row
-
-    # Draw daily rows
-    self.set_font("Helvetica", "", 9)
-
+    # Draw daily rows with employee blocks
     for i, date in enumerate(dates_in_week):
-      row_y = axis_y + 10 + i * row_height
-
-      # Date label
-      day_name = date.strftime("%A")
-      date_str = date.strftime("%m/%d/%Y")
-      self.set_xy(10, row_y + row_height / 2 - 3)
-      self.cell(35, 6, f"{day_name}\n{date_str}", align="R")
-
-      # Horizontal gridline
-      self.set_draw_color(200, 200, 200)
-      self.line(margin_left, row_y, margin_left + timeline_width, row_y)
+      row_y = axis_y + i * row_height
 
       # Get entries for this date
       day_data = week_df[week_df["Date"] == date]
 
       # Group by employee and collect all their time blocks for this day
-      employee_blocks = {}
+      employee_blocks: dict[str, list[tuple[datetime, datetime]]] = {}
       for _, row in day_data.iterrows():
         employee = row["Employee Name"]
-        in_time = row["In Time"]
-        out_time = row["Out Time Parsed"]
+        in_time: datetime = row["In Time"]
+        out_time: datetime = row["Out Time Parsed"]
 
         if employee not in employee_blocks:
           employee_blocks[employee] = []
@@ -222,12 +278,12 @@ class TimelinePDF(FPDF):
 
         # Draw all blocks for this employee
         for in_time, out_time in blocks:
-          # Calculate horizontal position
-          in_hour = in_time.hour + in_time.minute / 60
-          out_hour = out_time.hour + out_time.minute / 60
+          # Calculate horizontal position using Decimal for precision
+          in_hour = in_time.hour + Decimal(in_time.minute) / 60
+          out_hour = out_time.hour + Decimal(out_time.minute) / 60
 
-          block_x_start = margin_left + (in_hour - start_hour) * pixels_per_hour
-          block_width = (out_hour - in_hour) * pixels_per_hour
+          block_x_start = margin_left + float(in_hour - start_hour) * pixels_per_hour
+          block_width = float(out_hour - in_hour) * pixels_per_hour
 
           # Draw colored rectangle
           self.set_fill_color(*color)
@@ -236,7 +292,9 @@ class TimelinePDF(FPDF):
 
           # Add employee name label if block is wide enough
           min_width_for_label = 15  # Minimum width in mm to show label
-          if block_width >= min_width_for_label:
+          min_height_for_label = 3  # Minimum height in mm to show label
+
+          if block_width >= min_width_for_label and employee_block_height >= min_height_for_label:
             # Extract first and last name from "ID - FIRST LAST" format
             name_parts = employee.split(" - ")
             if len(name_parts) > 1:
@@ -247,71 +305,125 @@ class TimelinePDF(FPDF):
                 first_name = name_words[0].title()
                 last_name = name_words[-1].title()
 
-                # Try full name first
-                display_name = f"{first_name} {last_name}"
-
-                # Set font to measure text width
-                self.set_text_color(255, 255, 255)
-                self.set_font("Helvetica", "B", 7)
-
-                # Check if full name fits (leave small margin)
-                text_width = self.get_string_width(display_name)
-                available_width = block_width - 2  # 2mm margin
-
-                # If full name doesn't fit, use "First L" format
-                if text_width > available_width:
-                  last_initial = last_name[0]
-                  display_name = f"{first_name} {last_initial}"
+                # For horizontal blocks, use first initial + last name or just initials
+                if block_width >= 30:
+                  # Enough space for first initial + last name
+                  display_name = f"{first_name[0]}. {last_name}"
+                else:
+                  # Use initials only
+                  display_name = f"{first_name[0]}.{last_name[0]}."
               elif len(name_words) == 1:
                 # Only one word in name
-                display_name = name_words[0].title()
+                display_name = name_words[0].title()[:6]  # Truncate if needed
               else:
-                display_name = employee
+                display_name = ""
             else:
-              display_name = employee
+              display_name = ""
 
-            # Use white text for better contrast on colored blocks
-            self.set_text_color(255, 255, 255)
-            self.set_font("Helvetica", "B", 7)
+            if display_name:
+              # Use white text for better contrast on colored blocks
+              self.set_text_color(255, 255, 255)
 
-            # Center text in the block
-            text_x = block_x_start + block_width / 2
-            text_y = block_y + employee_block_height / 2 - 1
-            self.set_xy(text_x - block_width / 2, text_y)
-            self.cell(block_width, employee_block_height, display_name, align="C")
+              # Use larger font sizes for better readability
+              if employee_block_height < 5:
+                self.set_font("Helvetica", "B", 8)
+              else:
+                self.set_font("Helvetica", "B", 9)
 
-            # Reset text color to black
-            self.set_text_color(0, 0, 0)
+              # Calculate center position for text (no rotation needed for horizontal blocks)
+              text_x = block_x_start + block_width / 2
+              text_y = block_y + employee_block_height / 2
 
-    # Draw legend
-    self.draw_legend(margin_left + timeline_width + 5, axis_y + 10)
+              # Get text dimensions for centering
+              text_width = self.get_string_width(display_name)
 
-  def draw_legend(self, x: float, y: float):
-    """Draw employee color legend."""
-    self.set_font("Helvetica", "B", 10)
+              # Draw text centered in the block (horizontally, no rotation)
+              self.set_xy(text_x - text_width / 2, text_y - 2)
+              self.cell(text_width, 4, display_name, align="L")
+
+              # Reset text color to black
+              self.set_text_color(0, 0, 0)
+
+    # Calculate total hours for each employee in this week
+    # Sum the "Hours Worked" column (already in Decimal) for each employee
+    employee_hours = {}
+    for _, row in week_df.iterrows():
+      employee = row["Employee Name"]
+      hours_worked = row["Hours Worked"]
+
+      if employee not in employee_hours:
+        employee_hours[employee] = Decimal(0)
+      employee_hours[employee] += hours_worked
+
+    # Draw legend at bottom with hours
+    self.draw_legend(margin_left, page_height - margin_bottom + 10, employee_hours)
+
+  def draw_legend(self, x: float, y: float, employee_hours: dict[str, Decimal] = None):
+    """Draw employee color legend with total hours."""
+    if employee_hours is None:
+      employee_hours = {}
+
+    self.set_font("Helvetica", "B", 9)
     self.set_xy(x, y)
     self.cell(50, 5, "Employees:", align="L")
 
     self.set_font("Helvetica", "", 7)
-    legend_y = y + 7
+    legend_y = y + 5  # Reduced from 6 to save space
 
     sorted_employees = sorted(self.employee_colors.keys())
+
+    # Calculate maximum rows that fit on page
+    page_height = self.h
+    available_height = page_height - legend_y - 3  # Reduced margin at bottom
+    row_height = 5  # Increased from 4 for better spacing
+    max_rows = int(available_height / row_height)
+
+    # Calculate minimum columns needed to fit all employees
+    num_employees = len(sorted_employees)
+    min_cols_needed = -(-num_employees // max_rows)  # Ceiling division
+
+    # Use the minimum columns needed to prevent overflow
+    num_cols = max(min_cols_needed, 1)
+
+    # Calculate column width based on available space
+    page_width = self.w
+    available_width = page_width - x - 10
+    col_width = available_width / num_cols
 
     for i, employee in enumerate(sorted_employees):
       color = self.employee_colors[employee]
 
+      # Calculate position in grid layout
+      col = i % num_cols
+      row = i // num_cols
+
+      pos_x = x + col * col_width
+      pos_y = legend_y + row * row_height
+
       # Color swatch
       self.set_fill_color(*color)
       self.set_draw_color(0, 0, 0)
-      self.rect(x, legend_y + i * 5, 3, 3, "FD")
+      self.rect(pos_x, pos_y, 3, 3, "FD")
 
-      # Employee name (truncate if too long)
-      name = employee
-      if len(name) > 20:
-        name = name[:17] + "..."
+      # Employee name and hours (full name, no truncation)
+      # Get total hours for this employee
+      total_hours = employee_hours.get(employee, Decimal(0))
 
-      self.set_xy(x + 4, legend_y + i * 5)
-      self.cell(50, 3, name, align="L")
+      # Truncate repeating decimals for display
+      hours_display = truncate_repeating_decimal(total_hours)
+
+      # Apply proper casing to employee name
+      name_parts = employee.split(" - ")
+      if len(name_parts) > 1:
+        # Format: "ID - FIRST LAST" -> "ID - First Last"
+        formatted_name = f"{name_parts[0]} - {name_parts[1].title()}"
+      else:
+        formatted_name = employee.title()
+
+      display_text = f"{formatted_name} ({hours_display}h)"
+
+      self.set_xy(pos_x + 4, pos_y)
+      self.cell(col_width - 4, 3, display_text, align="L")
 
 
 def main():
@@ -342,7 +454,7 @@ def main():
   print(f"Time range: {min_time.strftime('%I:%M %p')} to {max_time.strftime('%I:%M %p')}")
 
   # Generate PDF
-  print(f"\nGenerating PDF...")
+  print("\nGenerating PDF...")
   pdf = TimelinePDF(employee_colors)
 
   for (week_start, week_end), week_df in weeks.items():
