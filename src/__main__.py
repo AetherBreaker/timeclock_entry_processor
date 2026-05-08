@@ -15,8 +15,8 @@ from fpdf import FPDF
 from pandas import DataFrame, concat, notna, read_csv, to_datetime
 
 # Constants
-CSV_FILE = "Time-Clock-Entry-Report.csv"
-OUTPUT_FILE = "employee-timeline.pdf"
+INPUT_FOLDER = "input"
+OUTPUT_FOLDER = "output"
 DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
 
 
@@ -46,6 +46,12 @@ def load_and_parse_data(csv_path: Path) -> DataFrame:
 
   # Extract date for grouping
   df["Date"] = df["In Time"].dt.date
+
+  # Extract store number from "Store" column
+  # Format: "13 - Sweet Fire Tobacco 013" -> "013"
+  df["Store Number"] = df["Store"].apply(
+    lambda x: x.split(" - ")[0].strip().zfill(3) if notna(x) and " - " in str(x) else "Unknown"  # type: ignore
+  )
 
   return df
 
@@ -305,16 +311,41 @@ class TimelinePDF(FPDF):
                 first_name = name_words[0].title()
                 last_name = name_words[-1].title()
 
-                # For horizontal blocks, use first initial + last name or just initials
-                if block_width >= 30:
-                  # Enough space for first initial + last name
-                  display_name = f"{first_name[0]}. {last_name}"
+                # Set font to measure text width (use larger font for taller blocks)
+                if employee_block_height < 5:
+                  self.set_font("Helvetica", "B", 8)
                 else:
-                  # Use initials only
-                  display_name = f"{first_name[0]}.{last_name[0]}."
+                  self.set_font("Helvetica", "B", 9)
+
+                # Try full first name + full last name
+                display_name = f"{first_name} {last_name}"
+                text_width = self.get_string_width(display_name)
+
+                # If doesn't fit, try full first name + last initial
+                if text_width > block_width - 2:  # 2mm padding
+                  display_name = f"{first_name} {last_name[0]}."
+                  text_width = self.get_string_width(display_name)
+
+                  # If still doesn't fit, use both initials
+                  if text_width > block_width - 2:
+                    display_name = f"{first_name[0]}.{last_name[0]}."
+                    text_width = self.get_string_width(display_name)
+
+                    # If even initials don't fit, give up
+                    if text_width > block_width - 2:
+                      display_name = ""
               elif len(name_words) == 1:
                 # Only one word in name
-                display_name = name_words[0].title()[:6]  # Truncate if needed
+                display_name = name_words[0].title()
+                # Check if it fits
+                if employee_block_height < 5:
+                  self.set_font("Helvetica", "B", 8)
+                else:
+                  self.set_font("Helvetica", "B", 9)
+                text_width = self.get_string_width(display_name)
+                if text_width > block_width - 2:
+                  display_name = display_name[:6]  # Truncate if needed
+                  text_width = self.get_string_width(display_name)  # Recalculate for truncated name
               else:
                 display_name = ""
             else:
@@ -324,19 +355,13 @@ class TimelinePDF(FPDF):
               # Use white text for better contrast on colored blocks
               self.set_text_color(255, 255, 255)
 
-              # Use larger font sizes for better readability
-              if employee_block_height < 5:
-                self.set_font("Helvetica", "B", 8)
-              else:
-                self.set_font("Helvetica", "B", 9)
-
+              # Font already set above during width calculation
               # Calculate center position for text (no rotation needed for horizontal blocks)
               text_x = block_x_start + block_width / 2
               text_y = block_y + employee_block_height / 2
 
-              # Get text dimensions for centering
+              # Get final text width for the display_name we're actually using
               text_width = self.get_string_width(display_name)
-
               # Draw text centered in the block (horizontally, no rotation)
               self.set_xy(text_x - text_width / 2, text_y - 2)
               self.cell(text_width, 4, display_name, align="L")
@@ -426,44 +451,84 @@ class TimelinePDF(FPDF):
       self.cell(col_width - 4, 3, display_text, align="L")
 
 
-def main():
-  """Main entry point."""
-  # Paths
-  base_path = Path(__file__).parent.parent
-  csv_path = base_path / CSV_FILE
-  output_path = base_path / OUTPUT_FILE
+def process_store_data(store_number: str, store_df: DataFrame, output_base: Path) -> None:
+  """Process data for a single store and generate PDFs by week."""
+  print(f"\n  Processing Store {store_number}:")
+  print(f"    {len(store_df)} entries")
+  print(f"    Date range: {store_df['Date'].min()} to {store_df['Date'].max()}")
 
-  print(f"Loading data from {csv_path}...")
-  df = load_and_parse_data(csv_path)
-
-  print(f"Loaded {len(df)} entries")
-  print(f"Date range: {df['Date'].min()} to {df['Date'].max()}")
-
-  # Get unique employees and generate colors
-  unique_employees = df["Employee Name"].unique().tolist()
-  print(f"Found {len(unique_employees)} unique employees")
+  # Get unique employees for this store and generate colors
+  unique_employees = store_df["Employee Name"].unique().tolist()
+  print(f"    {len(unique_employees)} unique employees")
 
   employee_colors = generate_employee_colors(unique_employees)
 
   # Group by weeks
-  weeks = group_by_weeks(df)
-  print(f"Data spans {len(weeks)} week(s)")
+  weeks = group_by_weeks(store_df)
+  print(f"    {len(weeks)} week(s)")
 
   # Calculate time range for axis
-  min_time, max_time = calculate_time_range(df)
-  print(f"Time range: {min_time.strftime('%I:%M %p')} to {max_time.strftime('%I:%M %p')}")
+  min_time, max_time = calculate_time_range(store_df)
 
-  # Generate PDF
-  print("\nGenerating PDF...")
-  pdf = TimelinePDF(employee_colors)
+  # Create output directory for this store
+  store_output_dir = output_base / store_number
+  store_output_dir.mkdir(parents=True, exist_ok=True)
 
+  # Generate one PDF per week
   for (week_start, week_end), week_df in weeks.items():
-    print(f"  Rendering week: {week_start} to {week_end}")
-    pdf.render_week(week_start, week_end, week_df, min_time, max_time)
+    # Create PDF filename: week ending date
+    pdf_filename = f"{week_end.strftime('%Y-%m-%d')}.pdf"
+    pdf_path = store_output_dir / pdf_filename
 
-  # Save PDF
-  pdf.output(str(output_path))
-  print(f"\nPDF saved to: {output_path}")
+    print(f"    Rendering week {week_start} to {week_end} -> {pdf_filename}")
+
+    pdf = TimelinePDF(employee_colors)
+    pdf.render_week(week_start, week_end, week_df, min_time, max_time)
+    pdf.output(str(pdf_path))
+
+
+def main():
+  """Main entry point."""
+  # Paths
+  base_path = Path(__file__).parent.parent
+  input_folder = base_path / INPUT_FOLDER
+  output_folder = base_path / OUTPUT_FOLDER
+
+  # Create input folder if it doesn't exist
+  input_folder.mkdir(exist_ok=True)
+
+  # Find all CSV files in input folder
+  csv_files = list(input_folder.glob("*.csv"))
+
+  if not csv_files:
+    print(f"No CSV files found in {input_folder}")
+    print(f"Please place CSV files in the '{INPUT_FOLDER}' folder.")
+    return
+
+  print(f"Found {len(csv_files)} CSV file(s) to process\n")
+
+  # Process each CSV file
+  all_data = []
+  for csv_file in csv_files:
+    print(f"Loading {csv_file.name}...")
+    df = load_and_parse_data(csv_file)
+    all_data.append(df)
+    print(f"  Loaded {len(df)} entries")
+
+  # Combine all data
+  combined_df = concat(all_data, ignore_index=True)
+  print(f"\nTotal entries loaded: {len(combined_df)}")
+  print(f"Overall date range: {combined_df['Date'].min()} to {combined_df['Date'].max()}")
+
+  # Group by store
+  stores = combined_df.groupby("Store Number")
+  print(f"\nProcessing {len(stores)} store(s)...")
+
+  # Process each store
+  for store_number, store_df in stores:
+    process_store_data(store_number, store_df, output_folder)
+
+  print(f"\n✓ All PDFs saved to: {output_folder}")
 
 
 if __name__ == "__main__":
