@@ -9,10 +9,14 @@ and data is organized by calendar week (Monday-Sunday).
 from colorsys import hsv_to_rgb
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+from logging import getLogger
 from pathlib import Path
 
 from fpdf import FPDF
 from pandas import DataFrame, concat, notna, read_csv, to_datetime
+
+logger = getLogger(__name__)
+
 
 # Constants
 INPUT_FOLDER = "input"

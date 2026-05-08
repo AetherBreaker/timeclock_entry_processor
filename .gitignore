@@ -14,3 +14,7 @@ PYCACHE/
 
 *.pdf
 *.csv
+persisted_data/
+employee_list_input/
+employee_groups_input/
+auto_employee_list_input/
