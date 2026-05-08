@@ -254,6 +254,10 @@ class TimelinePDF(FPDF):
       x = margin_left + (hour - start_hour) * pixels_per_hour
       self.line(x, axis_y, x, axis_y + timeline_height)
 
+    # Add employee name label if block is wide enough
+    min_width_for_label = 15  # Minimum width in mm to show label
+    min_height_for_label = 3  # Minimum height in mm to show label
+
     # Draw daily rows with employee blocks
     for i, date in enumerate(dates_in_week):
       row_y = axis_y + i * row_height
@@ -300,10 +304,6 @@ class TimelinePDF(FPDF):
           self.set_draw_color(0, 0, 0)
           self.rect(block_x_start, block_y, block_width, employee_block_height, "FD")
 
-          # Add employee name label if block is wide enough
-          min_width_for_label = 15  # Minimum width in mm to show label
-          min_height_for_label = 3  # Minimum height in mm to show label
-
           if block_width >= min_width_for_label and employee_block_height >= min_height_for_label:
             # Extract first and last name from "ID - FIRST LAST" format
             name_parts = employee.split(" - ")
@@ -331,13 +331,13 @@ class TimelinePDF(FPDF):
                   text_width = self.get_string_width(display_name)
 
                   # If still doesn't fit, use both initials
-                  if text_width > block_width - 2:
-                    display_name = f"{first_name[0]}.{last_name[0]}."
-                    text_width = self.get_string_width(display_name)
+                if text_width > block_width - 2:
+                  display_name = f"{first_name[0]}.{last_name[0]}."
+                  text_width = self.get_string_width(display_name)
 
-                    # If even initials don't fit, give up
-                    if text_width > block_width - 2:
-                      display_name = ""
+                # If even initials don't fit, give up
+                if text_width > block_width - 2:
+                  display_name = ""
               elif len(name_words) == 1:
                 # Only one word in name
                 display_name = name_words[0].title()
@@ -512,7 +512,7 @@ def main():
   print(f"Found {len(csv_files)} CSV file(s) to process\n")
 
   # Process each CSV file
-  all_data = []
+  all_data: list[DataFrame] = []
   for csv_file in csv_files:
     print(f"Loading {csv_file.name}...")
     df = load_and_parse_data(csv_file)
