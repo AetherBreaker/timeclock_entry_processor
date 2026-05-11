@@ -65,26 +65,29 @@ def load_and_parse_data(csv_path: Path) -> DataFrame:
 
 
 type EmployeeColors = dict[EmployeeName, tuple[int, int, int]]
+type GroupLabel = str
+type GroupColors = dict[GroupLabel, tuple[int, int, int]]
 
 
 def to_255(r, g, b):
   return (int(r * 255), int(g * 255), int(b * 255))
 
 
-group_groups = {
-  "ADMIN": "admin_like",
-  "Default": "admin_like",
-  "District Manager": "district_like",
-  "Franchisee": "district_like",
-  "Manager": "manager",
-  "Office Corp User": "office",
-  "Reporting Office": "office",
+group_groups: dict[str, GroupLabel] = {
+  "ADMIN": "Admin",
+  "Default": "Admin",
+  "District Manager": "District Manager",
+  "Franchisee": "District Manager",
+  "Manager": "Manager",
+  "Office Corp User": "Office",
+  "Reporting Office": "Office",
 }
 
 
-def generate_employee_colors(employees: list[str], employee_info: DataFrame = get_employee_info()) -> EmployeeColors:
+def generate_employee_colors(employees: list[str], employee_info: DataFrame = EMPLOYEE_INFO) -> tuple[EmployeeColors, GroupColors]:
   """Generate distinct colors for each employee using HSV color space."""
   colors = {}
+  group_colors: GroupColors = {}
 
   employee_color_assigned_map = {}
 
@@ -103,7 +106,7 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = ge
       result = idx
       idx += 1
     employee_color_assigned_map[employee] = result
-    if result != "admin_like":
+    if result != "Admin":
       color_index.add(result)
 
   i = 0
@@ -120,6 +123,9 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = ge
     r, g, b = hsv_to_rgb(hue, saturation, value)
     col_tuple = to_255(r, g, b)
 
+    if isinstance(col_idx, str):
+      group_colors[col_idx] = col_tuple
+
     # find all employees in the employee_group_map with this col_idx and assign them the same color
     for employee, assigned_idx in employee_color_assigned_map.items():
       if assigned_idx == col_idx:
@@ -127,10 +133,10 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = ge
 
   # Assign admin color to all employees in admin-like groups
   for employee, assigned_idx in employee_color_assigned_map.items():
-    if assigned_idx == "admin_like":
+    if assigned_idx == "Admin":
       colors[employee] = ADMIN_COLOR
 
-  return colors
+  return colors, group_colors
 
 
 def group_by_weeks(df: DataFrame) -> dict[tuple, DataFrame]:
@@ -223,9 +229,10 @@ def truncate_repeating_decimal(value: Decimal) -> str:
 class TimelinePDF(FPDF):
   """Custom PDF class for rendering employee timelines."""
 
-  def __init__(self, employee_colors: EmployeeColors):
+  def __init__(self, employee_colors: EmployeeColors, group_colors: GroupColors):
     super().__init__(orientation="L", unit="mm", format="A4")  # Landscape orientation
     self.employee_colors = employee_colors
+    self.group_colors = group_colors
     self.set_auto_page_break(False)
 
   def render_week(self, week_start, week_end, week_df: DataFrame, min_time: time, max_time: time):
@@ -237,18 +244,18 @@ class TimelinePDF(FPDF):
     page_height = self.h
 
     # Margins and layout (tightened for more timeline space)
-    margin_left = 35  # Space for day labels
-    margin_right = 5
-    margin_top = 25  # Space for time axis and header
-    margin_bottom = 35  # Space for legend
+    self.margin_left = 35  # Space for day labels
+    self.margin_right = 5
+    self.margin_top = 25  # Space for time axis and header
+    self.margin_bottom = 35  # Space for legend
 
     # Timeline area
-    timeline_width = page_width - margin_left - margin_right
-    timeline_height = page_height - margin_top - margin_bottom
+    timeline_width = page_width - self.margin_left - self.margin_right
+    timeline_height = page_height - self.margin_top - self.margin_bottom
 
     # Header
     self.set_font("Helvetica", "B", 12)
-    self.set_xy(margin_left, 5)
+    self.set_xy(self.margin_left, 5)
     self.cell(timeline_width, 6, f"Week of {week_start.strftime('%B %d, %Y')} - {week_end.strftime('%B %d, %Y')}", align="C")
 
     # Calculate time axis parameters (horizontal)
@@ -258,7 +265,7 @@ class TimelinePDF(FPDF):
     pixels_per_hour = timeline_width / total_hours
 
     # Time axis position (top)
-    axis_y = margin_top
+    axis_y = self.margin_top
 
     # Get dates in this week (sorted)
     dates_in_week = sorted(week_df["Date"].unique())
@@ -278,19 +285,19 @@ class TimelinePDF(FPDF):
       # Day name and date
       label = f"{day_name} {date_str}"
       self.set_xy(5, row_y + row_height / 2 - 2)
-      self.cell(margin_left - 10, 4, label, align="R")
+      self.cell(self.margin_left - 10, 4, label, align="R")
 
       # Horizontal gridline
       self.set_draw_color(200, 200, 200)
-      self.line(margin_left, row_y, margin_left + timeline_width, row_y)
+      self.line(self.margin_left, row_y, self.margin_left + timeline_width, row_y)
 
     # Draw horizontal time axis
     self.set_font("Helvetica", "", 7)
     self.set_draw_color(0, 0, 0)
-    self.line(margin_left, axis_y, margin_left + timeline_width, axis_y)
+    self.line(self.margin_left, axis_y, self.margin_left + timeline_width, axis_y)
 
     for hour in range(start_hour, end_hour + 1):
-      x = margin_left + (hour - start_hour) * pixels_per_hour
+      x = self.margin_left + (hour - start_hour) * pixels_per_hour
       self.line(x, axis_y - 2, x, axis_y + 2)
 
       # Time label
@@ -305,7 +312,7 @@ class TimelinePDF(FPDF):
     # Draw vertical grid lines for each hour
     self.set_draw_color(220, 220, 220)  # Light grey
     for hour in range(start_hour, end_hour + 1):
-      x = margin_left + (hour - start_hour) * pixels_per_hour
+      x = self.margin_left + (hour - start_hour) * pixels_per_hour
       self.line(x, axis_y, x, axis_y + timeline_height)
 
     # Add employee name label if block is wide enough
@@ -350,7 +357,7 @@ class TimelinePDF(FPDF):
           in_hour = in_time.hour + Decimal(in_time.minute) / 60
           out_hour = out_time.hour + Decimal(out_time.minute) / 60
 
-          block_x_start = margin_left + float(in_hour - start_hour) * pixels_per_hour
+          block_x_start = self.margin_left + float(in_hour - start_hour) * pixels_per_hour
           block_width = float(out_hour - in_hour) * pixels_per_hour
 
           # Draw colored rectangle
@@ -439,10 +446,11 @@ class TimelinePDF(FPDF):
       employee_hours[employee] += hours_worked
 
     # Draw legend at bottom with hours
-    self.draw_legend(margin_left, page_height - margin_bottom + 10, employee_hours)
+    self.draw_legend(self.margin_left, page_height - self.margin_bottom + 10, employee_hours)
 
   def draw_legend(self, x: float, y: float, employee_hours: dict[str, Decimal] = None):
-    """Draw employee color legend with total hours."""
+    # sourcery skip: extract-duplicate-method
+    """Draw employee color legend with total hours and group color legend."""
     if employee_hours is None:
       employee_hours = {}
 
@@ -468,11 +476,16 @@ class TimelinePDF(FPDF):
     # Use the minimum columns needed to prevent overflow
     num_cols = max(min_cols_needed, 1)
 
-    # Calculate column width based on available space
+    # Calculate space needed for group legend on right side
     page_width = self.w
-    available_width = page_width - x - 10
+    group_legend_width = 40  # Fixed width for group legend (groups have short names)
+    group_legend_gap = 5  # Gap between employee and group legends
+
+    # Calculate column width based on available space minus group legend space
+    available_width = page_width - x - 10 - group_legend_width - group_legend_gap - self.margin_right  # 10mm padding on right side
     col_width = available_width / num_cols
 
+    # Draw employee legend
     for i, employee in enumerate(sorted_employees):
       color = self.employee_colors[employee]
 
@@ -508,6 +521,33 @@ class TimelinePDF(FPDF):
       self.set_xy(pos_x + 4, pos_y)
       self.cell(col_width - 4, 3, display_text, align="L")
 
+    # Draw group legend on the right side
+    if self.group_colors:
+      group_legend_x = x + available_width + group_legend_gap
+
+      # Draw "Groups:" header
+      self.set_font("Helvetica", "B", 9)
+      self.set_xy(group_legend_x, y)
+      self.cell(group_legend_width, 5, "Groups:", align="L")
+
+      # Draw group color swatches
+      self.set_font("Helvetica", "", 7)
+      sorted_groups = sorted(self.group_colors.keys())
+
+      for i, group_name in enumerate(sorted_groups):
+        color = self.group_colors[group_name]
+
+        group_pos_y = legend_y + i * row_height
+
+        # Color swatch
+        self.set_fill_color(*color)
+        self.set_draw_color(0, 0, 0)
+        self.rect(group_legend_x, group_pos_y, 3, 3, "FD")
+
+        # Group name
+        self.set_xy(group_legend_x + 4, group_pos_y)
+        self.cell(group_legend_width - 4, 3, group_name, align="L")
+
 
 def process_store_data(store_number: str, store_df: DataFrame, output_base: Path, employee_group_df: DataFrame | None = None) -> None:
   """Process data for a single store and generate PDFs by week."""
@@ -519,7 +559,7 @@ def process_store_data(store_number: str, store_df: DataFrame, output_base: Path
   unique_employees = store_df["Employee Name"].unique().tolist()
   print(f"    {len(unique_employees)} unique employees")
 
-  employee_colors = generate_employee_colors(unique_employees)
+  employee_colors, group_colors = generate_employee_colors(unique_employees)
 
   # Group by weeks
   weeks = group_by_weeks(store_df)
@@ -540,7 +580,7 @@ def process_store_data(store_number: str, store_df: DataFrame, output_base: Path
 
     print(f"    Rendering week {week_start} to {week_end} -> {pdf_filename}")
 
-    pdf = TimelinePDF(employee_colors)
+    pdf = TimelinePDF(employee_colors, group_colors)
     pdf.render_week(week_start, week_end, week_df, min_time, max_time)
     pdf.output(str(pdf_path))
 
