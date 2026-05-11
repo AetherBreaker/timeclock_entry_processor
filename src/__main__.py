@@ -490,7 +490,7 @@ class TimelinePDF(FPDF):
       employee_hours[employee] += hours_worked
 
     # Draw legend at bottom with hours
-    self.draw_legend(self.margin_left, page_height - self.margin_bottom + 10, employee_hours)
+    self.draw_legend(self.margin_left, page_height - self.margin_bottom + 5, employee_hours)
 
   def draw_legend(self, x: float, y: float, employee_hours: dict[str, Decimal] = None):
     # sourcery skip: extract-duplicate-method
