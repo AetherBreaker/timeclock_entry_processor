@@ -98,8 +98,11 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = EM
   color_index: set[str | int] = set()
 
   for employee in sorted(employees):
-    lookup_result = employee_info.loc[employee_info["name"] == employee, "group"]
-    if len(lookup_result) > 0:
+    # Extract employee ID from "ID - NAME" format
+    employee_id = employee.split(" - ")[0].strip() if " - " in employee else employee
+
+    lookup_result = employee_info.loc[employee_info["id"] == employee_id, "group"]
+    if len(lookup_result) > 0 and lookup_result.iloc[0] in group_groups:
       result = group_groups[lookup_result.iloc[0]]
 
     else:
@@ -114,7 +117,7 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = EM
   saturation = 0.85
   value = 0.65
 
-  for i, col_idx in enumerate(sorted(color_index)):
+  for i, col_idx in enumerate(sorted(color_index, key=lambda x: str(x))):
     # Distribute hues evenly around the color wheel
     hue = i / len(color_index)
     # Use high saturation and darker value for better contrast with white text
@@ -527,7 +530,8 @@ class TimelinePDF(FPDF):
 
     # Draw group legend on the right side
     if self.group_colors:
-      group_legend_x = x + available_width + group_legend_gap
+      # Position group legend from the right edge
+      group_legend_x = page_width - group_legend_width - self.margin_right  # 10mm from right edge
 
       # Draw "Groups:" header
       self.set_font("Helvetica", "B", 9)
