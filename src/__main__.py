@@ -12,6 +12,7 @@ from decimal import Decimal
 from logging import getLogger
 from pathlib import Path
 
+from employee_info import EmployeeName, get_employee_info
 from fpdf import FPDF
 from pandas import DataFrame, concat, notna, read_csv, to_datetime
 
@@ -22,6 +23,9 @@ logger = getLogger(__name__)
 INPUT_FOLDER = "input"
 OUTPUT_FOLDER = "output"
 DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
+
+# Load employee group information
+EMPLOYEE_INFO = get_employee_info()
 
 
 def load_and_parse_data(csv_path: Path) -> DataFrame:
@@ -60,21 +64,71 @@ def load_and_parse_data(csv_path: Path) -> DataFrame:
   return df
 
 
-def generate_employee_colors(employees: list[str]) -> dict[str, tuple[int, int, int]]:
+type EmployeeColors = dict[EmployeeName, tuple[int, int, int]]
+
+
+def to_255(r, g, b):
+  return (int(r * 255), int(g * 255), int(b * 255))
+
+
+group_groups = {
+  "ADMIN": "admin_like",
+  "Default": "admin_like",
+  "District Manager": "district_like",
+  "Franchisee": "district_like",
+  "Manager": "manager",
+  "Office Corp User": "office",
+  "Reporting Office": "office",
+}
+
+
+def generate_employee_colors(employees: list[str], employee_info: DataFrame = get_employee_info()) -> EmployeeColors:
   """Generate distinct colors for each employee using HSV color space."""
-  num_employees = len(employees)
   colors = {}
 
-  for i, employee in enumerate(sorted(employees)):
+  employee_color_assigned_map = {}
+
+  ADMIN_COLOR = (64, 64, 64)  # Dark grey for admin-like groups
+
+  idx = 0
+
+  color_index: set[str | int] = set()
+
+  for employee in sorted(employees):
+    lookup_result = employee_info.loc[employee_info["name"] == employee, "group"]
+    if len(lookup_result) > 0:
+      result = group_groups[lookup_result.iloc[0]]
+
+    else:
+      result = idx
+      idx += 1
+    employee_color_assigned_map[employee] = result
+    if result != "admin_like":
+      color_index.add(result)
+
+  i = 0
+
+  saturation = 0.85
+  value = 0.65
+
+  for i, col_idx in enumerate(sorted(color_index)):
     # Distribute hues evenly around the color wheel
-    hue = i / num_employees
+    hue = i / len(color_index)
     # Use high saturation and darker value for better contrast with white text
-    saturation = 0.85
-    value = 0.65
 
     # Convert HSV to RGB (0-1 range) then to 0-255
     r, g, b = hsv_to_rgb(hue, saturation, value)
-    colors[employee] = (int(r * 255), int(g * 255), int(b * 255))
+    col_tuple = to_255(r, g, b)
+
+    # find all employees in the employee_group_map with this col_idx and assign them the same color
+    for employee, assigned_idx in employee_color_assigned_map.items():
+      if assigned_idx == col_idx:
+        colors[employee] = col_tuple
+
+  # Assign admin color to all employees in admin-like groups
+  for employee, assigned_idx in employee_color_assigned_map.items():
+    if assigned_idx == "admin_like":
+      colors[employee] = ADMIN_COLOR
 
   return colors
 
@@ -169,7 +223,7 @@ def truncate_repeating_decimal(value: Decimal) -> str:
 class TimelinePDF(FPDF):
   """Custom PDF class for rendering employee timelines."""
 
-  def __init__(self, employee_colors: dict[str, tuple[int, int, int]]):
+  def __init__(self, employee_colors: EmployeeColors):
     super().__init__(orientation="L", unit="mm", format="A4")  # Landscape orientation
     self.employee_colors = employee_colors
     self.set_auto_page_break(False)
@@ -455,7 +509,7 @@ class TimelinePDF(FPDF):
       self.cell(col_width - 4, 3, display_text, align="L")
 
 
-def process_store_data(store_number: str, store_df: DataFrame, output_base: Path) -> None:
+def process_store_data(store_number: str, store_df: DataFrame, output_base: Path, employee_group_df: DataFrame | None = None) -> None:
   """Process data for a single store and generate PDFs by week."""
   print(f"\n  Processing Store {store_number}:")
   print(f"    {len(store_df)} entries")
@@ -530,7 +584,7 @@ def main():
 
   # Process each store
   for store_number, store_df in stores:
-    process_store_data(store_number, store_df, output_folder)
+    process_store_data(str(store_number), store_df, output_folder, EMPLOYEE_INFO)
 
   print(f"\n✓ All PDFs saved to: {output_folder}")
 

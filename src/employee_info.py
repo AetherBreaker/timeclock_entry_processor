@@ -35,7 +35,7 @@ def get_employee_group_lists() -> dict[EmployeeGroup, tuple[EmployeeName]]:
   return employee_group_lists
 
 
-def create_grouped_employee_list() -> DataFrame:
+def get_employee_info() -> DataFrame:
   if EMPLOYEE_GROUPS_INPUT_FOLDER.exists():
     employee_df = read_csv(
       MANUAL_EMPLOYEE_LIST_CSV,
@@ -112,4 +112,4 @@ def create_grouped_employee_list() -> DataFrame:
 
 
 if __name__ == "__main__":
-  create_grouped_employee_list()
+  get_employee_info()
