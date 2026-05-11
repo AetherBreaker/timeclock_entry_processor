@@ -570,14 +570,23 @@ class TimelinePDF(FPDF):
       # Position group legend from the right edge
       group_legend_x = page_width - group_legend_width - self.margin_right  # 10mm from right edge
 
+      # Draw separator line on the left of the group legend
+      sorted_groups = sorted(self.group_colors.keys())
+      separator_x = group_legend_x - 2  # 2mm gap before the legend
+      separator_y_start = y
+      separator_y_end = legend_y + len(sorted_groups) * row_height + 3  # Cover all group items
+      self.set_draw_color(0, 0, 0)  # Black
+      self.set_line_width(0.5)
+      self.line(separator_x, separator_y_start, separator_x, separator_y_end)
+      self.set_line_width(0.2)  # Reset to default line width
+
       # Draw "Groups:" header
       self.set_font("Helvetica", "B", 9)
-      self.set_xy(group_legend_x, y)
+      self.set_xy(group_legend_x, separator_y_start)
       self.cell(group_legend_width, 5, "Groups:", align="L")
 
       # Draw group color swatches
       self.set_font("Helvetica", "", 7)
-      sorted_groups = sorted(self.group_colors.keys())
 
       for i, group_name in enumerate(sorted_groups):
         color = self.group_colors[group_name]
