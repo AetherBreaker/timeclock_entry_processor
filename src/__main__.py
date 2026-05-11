@@ -136,6 +136,10 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = EM
     if assigned_idx == "Admin":
       colors[employee] = ADMIN_COLOR
 
+  # Add Admin group to group_colors if any employees are in it
+  if "Admin" in employee_color_assigned_map.values():
+    group_colors["Admin"] = ADMIN_COLOR
+
   return colors, group_colors
 
 
