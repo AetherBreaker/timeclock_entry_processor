@@ -6,9 +6,10 @@ showing when each employee was clocked in. Each employee is color-coded,
 and data is organized by calendar week (Monday-Sunday).
 """
 
-from colorsys import hsv_to_rgb
+from colorsys import hsv_to_rgb, rgb_to_hsv
 from datetime import datetime, time, timedelta
 from decimal import Decimal
+from itertools import chain
 from logging import getLogger
 from pathlib import Path
 
@@ -83,15 +84,24 @@ group_groups: dict[str, GroupLabel] = {
   "Reporting Office": "Office",
 }
 
+# Hard-coded group colors for consistency across runs
+GROUP_COLORS: GroupColors = {
+  "Admin": to_255(*(hsv_to_rgb(0.0, 0.0, 0.7))),  # Dark grey
+  "District Manager": to_255(*(hsv_to_rgb(0, 0.85, 0.65))),  # Red
+  "Manager": to_255(*(hsv_to_rgb(0.08, 0.85, 0.85))),  # Orange
+  "Office": to_255(*(hsv_to_rgb(0.15, 0.85, 0.85))),  # Yellow
+}
+
 
 def generate_employee_colors(employees: list[str], employee_info: DataFrame = EMPLOYEE_INFO) -> tuple[EmployeeColors, GroupColors]:
-  """Generate distinct colors for each employee using HSV color space."""
+  """Generate distinct colors for each employee using HSV color space.
+  Group colors are hard-coded for consistency. Employee colors are generated
+  dynamically while avoiding the hues used by group colors.
+  """
   colors = {}
-  group_colors: GroupColors = {}
+  group_colors: GroupColors = GROUP_COLORS.copy()
 
   employee_color_assigned_map = {}
-
-  ADMIN_COLOR = (64, 64, 64)  # Dark grey for admin-like groups
 
   idx = 0
 
@@ -104,44 +114,71 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = EM
     lookup_result = employee_info.loc[employee_info["id"] == employee_id, "group"]
     if len(lookup_result) > 0 and lookup_result.iloc[0] in group_groups:
       result = group_groups[lookup_result.iloc[0]]
-
     else:
       result = idx
       idx += 1
+
     employee_color_assigned_map[employee] = result
     if result != "Admin":
       color_index.add(result)
 
-  i = 0
+  # Calculate reserved hues from group colors (to avoid when generating employee colors)
+  reserved_hues: list[Decimal] = [
+    Decimal("0.29")  # pre reserving green space because green is massive and too similar
+  ]
+  for group_name, rgb in GROUP_COLORS.items():
+    if group_name != "Admin":  # Admin is grey, no specific hue to avoid
+      r, g, b = rgb[0] / 255, rgb[1] / 255, rgb[2] / 255
+      h, s, v = rgb_to_hsv(r, g, b)
+      reserved_hues.append(Decimal(h))
+
+  # Separate group labels from numeric employee indices
+  numeric_indices = sorted([idx for idx in color_index if isinstance(idx, int)])
 
   saturation = 0.85
   value = 0.65
 
-  for i, col_idx in enumerate(sorted(color_index, key=lambda x: str(x))):
-    # Distribute hues evenly around the color wheel
-    hue = i / len(color_index)
-    # Use high saturation and darker value for better contrast with white text
+  # Generate colors for numeric employee indices, avoiding reserved hues
+  if numeric_indices:
+    num_colors = Decimal(len(numeric_indices))
+    hue_threshold = Decimal("0.09")  # Minimum distance from reserved hues
 
-    # Convert HSV to RGB (0-1 range) then to 0-255
-    r, g, b = hsv_to_rgb(hue, saturation, value)
-    col_tuple = to_255(r, g, b)
+    # Try to generate hues evenly distributed while avoiding reserved hues
+    employee_hues: list[Decimal] = []
+    attempts = int(num_colors) * 10  # Oversample to find suitable hues
 
-    if isinstance(col_idx, str):
-      group_colors[col_idx] = col_tuple
+    for i in range(attempts):
+      candidate_hue = Decimal(i) / attempts
+      # Check distance to all reserved hues (accounting for circular nature of hue)
+      min_distance = min(
+        (min(abs(candidate_hue - hue), 1 - abs(candidate_hue - hue)) for hue in chain(reserved_hues, employee_hues)),
+        default=1.0,
+      )
+      if min_distance >= hue_threshold:
+        employee_hues.append(candidate_hue)
 
-    # find all employees in the employee_group_map with this col_idx and assign them the same color
-    for employee, assigned_idx in employee_color_assigned_map.items():
-      if assigned_idx == col_idx:
-        colors[employee] = col_tuple
+      if len(employee_hues) >= num_colors:
+        break
 
-  # Assign admin color to all employees in admin-like groups
+    # If we couldn't find enough distinct hues, fall back to evenly distributed
+    while len(employee_hues) < num_colors:
+      employee_hues.append(len(employee_hues) / num_colors)
+
+    # Assign generated colors to numeric indices
+    for i, num_idx in enumerate(numeric_indices):
+      hue = employee_hues[i]
+      r, g, b = hsv_to_rgb(float(hue), saturation, value)
+      col_tuple = to_255(r, g, b)
+
+      # Assign this color to all employees with this numeric index
+      for employee, assigned_idx in employee_color_assigned_map.items():
+        if assigned_idx == num_idx:
+          colors[employee] = col_tuple
+
+  # Assign group colors from GROUP_COLORS
   for employee, assigned_idx in employee_color_assigned_map.items():
-    if assigned_idx == "Admin":
-      colors[employee] = ADMIN_COLOR
-
-  # Add Admin group to group_colors if any employees are in it
-  if "Admin" in employee_color_assigned_map.values():
-    group_colors["Admin"] = ADMIN_COLOR
+    if isinstance(assigned_idx, str):  # Group label
+      colors[employee] = GROUP_COLORS[assigned_idx]
 
   return colors, group_colors
 
