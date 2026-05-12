@@ -7,7 +7,7 @@ and data is organized by calendar week (Monday-Sunday).
 """
 
 from colorsys import hsv_to_rgb, rgb_to_hsv
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from itertools import chain
 from logging import getLogger
@@ -15,18 +15,26 @@ from pathlib import Path
 
 from employee_info import EmployeeName, get_employee_info
 from fpdf import FPDF
-from pandas import DataFrame, concat, notna, read_csv, to_datetime
+from pandas import DataFrame, concat, read_csv, to_datetime
 
 logger = getLogger(__name__)
 
 
+CWD = Path.cwd()
+
 # Constants
-INPUT_FOLDER = "input"
-OUTPUT_FOLDER = "output"
+INPUT_FOLDER = CWD / "input"
+INPUT_FOLDER.mkdir(exist_ok=True)  # Create input folder if it doesn't exist
+OUTPUT_FOLDER = CWD / "output"
+OUTPUT_FOLDER.mkdir(exist_ok=True)  # Create output folder if it doesn't exist
+
 DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
 
 # Load employee group information
 EMPLOYEE_INFO = get_employee_info()
+
+# Create a dictionary mapping employee ID to group for O(1) lookups (instead of DataFrame filtering)
+EMPLOYEE_ID_TO_GROUP = dict(zip(EMPLOYEE_INFO["id"], EMPLOYEE_INFO["group"]))
 
 
 def load_and_parse_data(csv_path: Path) -> DataFrame:
@@ -39,28 +47,31 @@ def load_and_parse_data(csv_path: Path) -> DataFrame:
   # Parse datetime columns
   df["In Time"] = to_datetime(df["In Time"], format="%m/%d/%Y %I:%M %p")
 
-  # Handle missing Out Time - set to 9 PM on the same day
-  df["Out Time"] = df["Out Time"].apply(lambda x: x if notna(x) and x != "N/A" else None)
+  # Handle missing Out Time - set to 9 PM on the same day (vectorized)
+  df["Out Time"] = df["Out Time"].replace("N/A", None)
   df["Out Time Parsed"] = to_datetime(df["Out Time"], format="%m/%d/%Y %I:%M %p", errors="coerce")
 
-  # For missing Out Time, set to 9 PM on the In Time date
+  # For missing Out Time, set to 9 PM on the In Time date (vectorized)
   mask = df["Out Time Parsed"].isna()
-  df.loc[mask, "Out Time Parsed"] = df.loc[mask, "In Time"].apply(lambda dt: datetime.combine(dt.date(), DEFAULT_OUT_TIME))
+  df.loc[mask, "Out Time Parsed"] = df.loc[mask, "In Time"].dt.floor("D") + timedelta(hours=DEFAULT_OUT_TIME.hour)
 
-  # Parse "Time Worked" column to Decimal for precision
+  # Parse "Time Worked" column to Decimal for precision (vectorized with fallback)
   # Format: "1.74 Hours" -> Decimal('1.74')
-  df["Hours Worked"] = df["Time Worked"].apply(
-    lambda x: Decimal(str(x).replace(" Hours", "").strip()) if notna(x) and x != "" else Decimal(0)  # type: ignore
+  # First, handle NaN/null values by filling them with "0 Hours"
+  df["Time Worked"] = df["Time Worked"].fillna("0 Hours")
+  df["Hours Worked"] = df["Time Worked"].astype(str).str.replace(" Hours", "").str.strip()
+  # Apply still needed for Decimal conversion but much faster with pre-cleaned strings
+  df["Hours Worked"] = df["Hours Worked"].apply(
+    lambda x: Decimal(x) if x and x not in ("", "nan", "None", "NaN") else Decimal(0)  # type: ignore
   )
 
-  # Extract date for grouping
+  # Extract date for grouping (already vectorized)
   df["Date"] = df["In Time"].dt.date
 
-  # Extract store number from "Store" column
+  # Extract store number from "Store" column (vectorized)
   # Format: "13 - Sweet Fire Tobacco 013" -> "013"
-  df["Store Number"] = df["Store"].apply(
-    lambda x: x.split(" - ")[0].strip().zfill(3) if notna(x) and " - " in str(x) else "Unknown"  # type: ignore
-  )
+  df["Store Number"] = df["Store"].astype(str).str.split(" - ").str[0].str.strip().str.zfill(3)
+  df["Store Number"] = df["Store Number"].where(df["Store"].notna() & df["Store"].astype(str).str.contains(" - "), "Unknown")
 
   return df
 
@@ -92,8 +103,21 @@ GROUP_COLORS: GroupColors = {
   "Office": to_255(*(hsv_to_rgb(0.15, 0.85, 0.85))),  # Yellow
 }
 
+# Pre-calculate reserved hues once (to avoid recalculating for every store)
+RESERVED_HUES: list[Decimal] = [
+  Decimal("0.29")  # pre reserving green space because green is massive and too similar
+]
+for group_name, rgb in GROUP_COLORS.items():
+  if group_name != "Admin":  # Admin is grey, no specific hue to avoid
+    r, g, b = rgb[0] / 255, rgb[1] / 255, rgb[2] / 255
+    h, s, v = rgb_to_hsv(r, g, b)
+    RESERVED_HUES.append(Decimal(h))
 
-def generate_employee_colors(employees: list[str], employee_info: DataFrame = EMPLOYEE_INFO) -> tuple[EmployeeColors, GroupColors]:
+
+def generate_employee_colors(
+  employees: list[str], employee_id_to_group: dict[str, str] = EMPLOYEE_ID_TO_GROUP
+) -> tuple[EmployeeColors, GroupColors]:
+  # sourcery skip: extract-method, move-assign, use-named-expression
   """Generate distinct colors for each employee using HSV color space.
   Group colors are hard-coded for consistency. Employee colors are generated
   dynamically while avoiding the hues used by group colors.
@@ -111,9 +135,10 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = EM
     # Extract employee ID from "ID - NAME" format
     employee_id = employee.split(" - ")[0].strip() if " - " in employee else employee
 
-    lookup_result = employee_info.loc[employee_info["id"] == employee_id, "group"]
-    if len(lookup_result) > 0 and lookup_result.iloc[0] in group_groups:
-      result = group_groups[lookup_result.iloc[0]]
+    # Use dictionary lookup instead of DataFrame filtering (O(1) instead of O(n))
+    employee_group = employee_id_to_group.get(employee_id, "")
+    if employee_group in group_groups:
+      result = group_groups[employee_group]
     else:
       result = idx
       idx += 1
@@ -121,16 +146,6 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = EM
     employee_color_assigned_map[employee] = result
     if result != "Admin":
       color_index.add(result)
-
-  # Calculate reserved hues from group colors (to avoid when generating employee colors)
-  reserved_hues: list[Decimal] = [
-    Decimal("0.29")  # pre reserving green space because green is massive and too similar
-  ]
-  for group_name, rgb in GROUP_COLORS.items():
-    if group_name != "Admin":  # Admin is grey, no specific hue to avoid
-      r, g, b = rgb[0] / 255, rgb[1] / 255, rgb[2] / 255
-      h, s, v = rgb_to_hsv(r, g, b)
-      reserved_hues.append(Decimal(h))
 
   # Separate group labels from numeric employee indices
   numeric_indices = sorted([idx for idx in color_index if isinstance(idx, int)])
@@ -150,8 +165,9 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = EM
     for i in range(attempts):
       candidate_hue = Decimal(i) / attempts
       # Check distance to all reserved hues (accounting for circular nature of hue)
+      # Use pre-calculated RESERVED_HUES instead of recalculating
       min_distance = min(
-        (min(abs(candidate_hue - hue), 1 - abs(candidate_hue - hue)) for hue in chain(reserved_hues, employee_hues)),
+        (min(abs(candidate_hue - hue), 1 - abs(candidate_hue - hue)) for hue in chain(RESERVED_HUES, employee_hues)),
         default=1.0,
       )
       if min_distance >= hue_threshold:
@@ -183,15 +199,16 @@ def generate_employee_colors(employees: list[str], employee_info: DataFrame = EM
   return colors, group_colors
 
 
-def group_by_weeks(df: DataFrame) -> dict[tuple, DataFrame]:
+def group_by_weeks(df: DataFrame) -> dict[tuple[date, date], DataFrame]:
   """Group data by calendar weeks (Monday-Sunday)."""
   weeks = {}
 
-  for date in df["Date"].unique():
+  for dt in df["Date"].unique():
+    dt: date
     # Get the Monday of the week containing this date
     # weekday(): Monday=0, Sunday=6
-    days_since_monday = date.weekday()
-    week_start = date - timedelta(days=days_since_monday)
+    days_since_monday = dt.weekday()
+    week_start = dt - timedelta(days=days_since_monday)
     week_end = week_start + timedelta(days=6)
 
     week_key = (week_start, week_end)
@@ -199,7 +216,7 @@ def group_by_weeks(df: DataFrame) -> dict[tuple, DataFrame]:
     if week_key not in weeks:
       weeks[week_key] = []
 
-    weeks[week_key].append(date)
+    weeks[week_key].append(dt)
 
   # Sort weeks and create dataframes
   sorted_weeks = {}
@@ -226,60 +243,34 @@ def calculate_time_range(df: DataFrame) -> tuple[time, time]:
 
 
 def truncate_repeating_decimal(value: Decimal) -> str:
-  """Truncate a Decimal at the point where digits start repeating.
+  """Format a Decimal to exactly 3 decimal places with 2-digit integer padding.
 
   Examples:
-    24.21666666... -> "24.216"
-    26.33333... -> "26.3"
-    25.5 -> "25.5"
+    24.21666666... -> "24.217"
+    26.33333... -> "26.333"
+    5.5 -> "05.500"
+
+  Returns a string that is always exactly 6 characters long (XX.XXX).
   """
-  str_value = str(value)
-
-  # Split into integer and decimal parts
-  if "." not in str_value:
-    return str_value
-
-  integer_part, decimal_part = str_value.split(".")
-
-  if not decimal_part:
-    return integer_part
-
-  # Look for repeating patterns
-  # Check for single repeating digit first (most common: 3333, 6666)
-  for i in range(len(decimal_part) - 1):
-    if i > 0 and all(c == decimal_part[i] for c in decimal_part[i:]):
-      # Found repeating digit at position i
-      return f"{integer_part}.{decimal_part[: i + 1]}"
-
-  # Check for longer repeating patterns (e.g., 142857142857)
-  for pattern_len in range(1, len(decimal_part) // 2 + 1):
-    pattern = decimal_part[:pattern_len]
-    # Check if this pattern repeats for the rest of the string
-    repeats = True
-    for j in range(pattern_len, len(decimal_part), pattern_len):
-      chunk = decimal_part[j : j + pattern_len]
-      if chunk and chunk != pattern[: len(chunk)]:
-        repeats = False
-        break
-
-    if repeats and len(decimal_part) > pattern_len * 2:
-      # Pattern repeats at least twice
-      return f"{integer_part}.{pattern}"
-
-  # No repeating pattern found, return as-is
-  return str_value
+  return f"{value:06.3f}"
 
 
 class TimelinePDF(FPDF):
   """Custom PDF class for rendering employee timelines."""
 
-  def __init__(self, employee_colors: EmployeeColors, group_colors: GroupColors):
+  def __init__(self, employee_colors: EmployeeColors, group_colors: GroupColors, store_number: int):
     super().__init__(orientation="L", unit="mm", format="A4")  # Landscape orientation
     self.employee_colors = employee_colors
     self.group_colors = group_colors
+    self.store_number = store_number
     self.set_auto_page_break(False)
 
-  def render_week(self, week_start, week_end, week_df: DataFrame, min_time: time, max_time: time):
+    # Add Roboto Mono fonts
+    self.add_font("RobotoMono", "", str(CWD / "RobotoMono-VariableFont_wght.ttf"))
+    self.add_font("RobotoMono", "B", str(CWD / "RobotoMono-VariableFont_wght.ttf"))
+    self.add_font("RobotoMono", "I", str(CWD / "RobotoMono-Italic-VariableFont_wght.ttf"))
+
+  def render_week(self, week_start: date, week_end: date, week_df: DataFrame, min_time: time, max_time: time):
     """Render a single week's timeline with horizontal time axis."""
     self.add_page()
 
@@ -298,9 +289,14 @@ class TimelinePDF(FPDF):
     timeline_height = page_height - self.margin_top - self.margin_bottom
 
     # Header
-    self.set_font("Helvetica", "B", 12)
+    self.set_font("RobotoMono", "B", 12)
     self.set_xy(self.margin_left, 5)
-    self.cell(timeline_width, 6, f"Week of {week_start.strftime('%B %d, %Y')} - {week_end.strftime('%B %d, %Y')}", align="C")
+    self.cell(
+      timeline_width,
+      6,
+      f"SFT{self.store_number:0>3} - Week of {week_start.strftime('%B %d, %Y')} - {week_end.strftime('%B %d, %Y')}",
+      align="C",
+    )
 
     # Calculate time axis parameters (horizontal)
     start_hour = min_time.hour
@@ -320,23 +316,50 @@ class TimelinePDF(FPDF):
     block_height = min(row_height * 0.9, 40)  # Block height within row (increased for better visibility)
 
     # Draw day labels on left
-    self.set_font("Helvetica", "B", 9)
-    for i, date in enumerate(dates_in_week):
+    self.set_font("RobotoMono", "B", 9)
+
+    # Draw vertical grid lines for each hour
+    self.set_draw_color(0, 0, 0)  # Black
+    self.line(self.margin_left, axis_y, self.margin_left, axis_y + timeline_height)
+    self.set_draw_color(220, 220, 220)  # Light grey
+    for hour in range(start_hour + 1, end_hour + 1):
+      x = self.margin_left + (hour - start_hour) * pixels_per_hour
+
+      # First and last lines are black, others are light grey
+      if hour == end_hour:
+        self.set_draw_color(0, 0, 0)  # Black
+      self.line(x, axis_y, x, axis_y + timeline_height)
+
+    date_labels = [date.strftime("%a %m/%d") for date in dates_in_week]
+    max_width = max(self.get_string_width(label) for label in date_labels)
+
+    day_label_cell_x_pos = self.margin_left - 10
+
+    day_row_separator_x_start_pos = self.margin_left - 10 - max_width - 2
+    day_row_separator_x_stop_pos = self.margin_left + timeline_width
+
+    for i, label in enumerate(date_labels):
       row_y = axis_y + i * row_height
-      day_name = date.strftime("%a")  # Short day name (Mon, Tue, etc.)
-      date_str = date.strftime("%m/%d")
 
       # Day name and date
-      label = f"{day_name} {date_str}"
       self.set_xy(5, row_y + row_height / 2 - 2)
-      self.cell(self.margin_left - 10, 4, label, align="R")
+      self.cell(day_label_cell_x_pos, 4, label, align="R")
 
       # Horizontal gridline
-      self.set_draw_color(200, 200, 200)
-      self.line(self.margin_left, row_y, self.margin_left + timeline_width, row_y)
+      # self.set_draw_color(200, 200, 200)
+      self.set_draw_color(0, 0, 0)
+      self.set_line_width(0.5)
+      self.line(day_row_separator_x_start_pos, row_y, day_row_separator_x_stop_pos, row_y)
+
+    # draw last separator at the bottom of the timeline table
+    last_separator_y = axis_y + num_days * row_height
+    self.line(day_row_separator_x_start_pos, last_separator_y, day_row_separator_x_stop_pos, last_separator_y)
+
+    # side line
+    self.line(day_row_separator_x_start_pos, axis_y, day_row_separator_x_start_pos, last_separator_y)
 
     # Draw horizontal time axis
-    self.set_font("Helvetica", "", 7)
+    self.set_font("RobotoMono", "", 7)
     self.set_draw_color(0, 0, 0)
     self.line(self.margin_left, axis_y, self.margin_left + timeline_width, axis_y)
 
@@ -353,22 +376,16 @@ class TimelinePDF(FPDF):
       self.set_xy(x - 5, axis_y - 8)
       self.cell(10, 4, label, align="C")
 
-    # Draw vertical grid lines for each hour
-    self.set_draw_color(220, 220, 220)  # Light grey
-    for hour in range(start_hour, end_hour + 1):
-      x = self.margin_left + (hour - start_hour) * pixels_per_hour
-      self.line(x, axis_y, x, axis_y + timeline_height)
-
     # Add employee name label if block is wide enough
     min_width_for_label = 15  # Minimum width in mm to show label
     min_height_for_label = 3  # Minimum height in mm to show label
 
     # Draw daily rows with employee blocks
-    for i, date in enumerate(dates_in_week):
+    for i, day_date in enumerate(dates_in_week):
       row_y = axis_y + i * row_height
 
       # Get entries for this date
-      day_data = week_df[week_df["Date"] == date]
+      day_data = week_df[week_df["Date"] == day_date]
 
       # Group by employee and collect all their time blocks for this day
       employee_blocks: dict[str, list[tuple[datetime, datetime]]] = {}
@@ -422,9 +439,9 @@ class TimelinePDF(FPDF):
 
                 # Set font to measure text width (use larger font for taller blocks)
                 if employee_block_height < 5:
-                  self.set_font("Helvetica", "B", 8)
+                  self.set_font("RobotoMono", "B", 8)
                 else:
-                  self.set_font("Helvetica", "B", 9)
+                  self.set_font("RobotoMono", "B", 9)
 
                 # Try full first name + full last name
                 display_name = f"{first_name} {last_name}"
@@ -448,9 +465,9 @@ class TimelinePDF(FPDF):
                 display_name = name_words[0].title()
                 # Check if it fits
                 if employee_block_height < 5:
-                  self.set_font("Helvetica", "B", 8)
+                  self.set_font("RobotoMono", "B", 8)
                 else:
-                  self.set_font("Helvetica", "B", 9)
+                  self.set_font("RobotoMono", "B", 9)
                 text_width = self.get_string_width(display_name)
                 if text_width > block_width - 2:
                   display_name = display_name[:6]  # Truncate if needed
@@ -498,14 +515,14 @@ class TimelinePDF(FPDF):
     if employee_hours is None:
       employee_hours = {}
 
-    self.set_font("Helvetica", "B", 9)
+    self.set_font("RobotoMono", "B", 9)
     self.set_xy(x, y)
     self.cell(50, 5, "Employees:", align="L")
 
-    self.set_font("Helvetica", "", 7)
+    self.set_font("RobotoMono", "", 7)
     legend_y = y + 5  # Reduced from 6 to save space
 
-    sorted_employees = sorted(self.employee_colors.keys())
+    sorted_employees = sorted(filter(lambda e: employee_hours.get(e, Decimal(0)) > 0, self.employee_colors.keys()))
 
     # Calculate maximum rows that fit on page
     page_height = self.h
@@ -531,6 +548,10 @@ class TimelinePDF(FPDF):
 
     # Draw employee legend
     for i, employee in enumerate(sorted_employees):
+      # Employee name and hours (full name, no truncation)
+      # Get total hours for this employee
+      total_hours = employee_hours.get(employee, Decimal(0))
+
       color = self.employee_colors[employee]
 
       # Calculate position in grid layout
@@ -545,22 +566,15 @@ class TimelinePDF(FPDF):
       self.set_draw_color(0, 0, 0)
       self.rect(pos_x, pos_y, 3, 3, "FD")
 
-      # Employee name and hours (full name, no truncation)
-      # Get total hours for this employee
-      total_hours = employee_hours.get(employee, Decimal(0))
-
       # Truncate repeating decimals for display
       hours_display = truncate_repeating_decimal(total_hours)
 
       # Apply proper casing to employee name
       name_parts = employee.split(" - ")
-      if len(name_parts) > 1:
-        # Format: "ID - FIRST LAST" -> "ID - First Last"
-        formatted_name = f"{name_parts[0]} - {name_parts[1].title()}"
-      else:
-        formatted_name = employee.title()
+      if len(name_parts) <= 1:
+        raise ValueError(f"Unexpected employee name format: {employee}")
 
-      display_text = f"{formatted_name} ({hours_display}h)"
+      display_text = f"{name_parts[0].strip(): <7}  {name_parts[1].strip().title(): <35}  {hours_display}h"
 
       self.set_xy(pos_x + 4, pos_y)
       self.cell(col_width - 4, 3, display_text, align="L")
@@ -581,12 +595,12 @@ class TimelinePDF(FPDF):
       self.set_line_width(0.2)  # Reset to default line width
 
       # Draw "Groups:" header
-      self.set_font("Helvetica", "B", 9)
+      self.set_font("RobotoMono", "B", 9)
       self.set_xy(group_legend_x, separator_y_start)
       self.cell(group_legend_width, 5, "Groups:", align="L")
 
       # Draw group color swatches
-      self.set_font("Helvetica", "", 7)
+      self.set_font("RobotoMono", "", 7)
 
       for i, group_name in enumerate(sorted_groups):
         color = self.group_colors[group_name]
@@ -603,7 +617,7 @@ class TimelinePDF(FPDF):
         self.cell(group_legend_width - 4, 3, group_name, align="L")
 
 
-def process_store_data(store_number: str, store_df: DataFrame, output_base: Path, employee_group_df: DataFrame | None = None) -> None:
+def process_store_data(store_number: int, store_df: DataFrame, output_base: Path) -> None:
   """Process data for a single store and generate PDFs by week."""
   print(f"\n  Processing Store {store_number}:")
   print(f"    {len(store_df)} entries")
@@ -623,7 +637,7 @@ def process_store_data(store_number: str, store_df: DataFrame, output_base: Path
   min_time, max_time = calculate_time_range(store_df)
 
   # Create output directory for this store
-  store_output_dir = output_base / store_number
+  store_output_dir = output_base / f"SFT{store_number:0>3}"
   store_output_dir.mkdir(parents=True, exist_ok=True)
 
   # Generate one PDF per week
@@ -633,8 +647,9 @@ def process_store_data(store_number: str, store_df: DataFrame, output_base: Path
     pdf_path = store_output_dir / pdf_filename
 
     print(f"    Rendering week {week_start} to {week_end} -> {pdf_filename}")
+    print(type(week_start), type(week_end))
 
-    pdf = TimelinePDF(employee_colors, group_colors)
+    pdf = TimelinePDF(employee_colors, group_colors, store_number)
     pdf.render_week(week_start, week_end, week_df, min_time, max_time)
     pdf.output(str(pdf_path))
 
@@ -642,18 +657,15 @@ def process_store_data(store_number: str, store_df: DataFrame, output_base: Path
 def main():
   """Main entry point."""
   # Paths
-  base_path = Path(__file__).parent.parent
-  input_folder = base_path / INPUT_FOLDER
-  output_folder = base_path / OUTPUT_FOLDER
 
   # Create input folder if it doesn't exist
-  input_folder.mkdir(exist_ok=True)
+  INPUT_FOLDER.mkdir(exist_ok=True)
 
   # Find all CSV files in input folder
-  csv_files = list(input_folder.glob("*.csv"))
+  csv_files = list(INPUT_FOLDER.glob("*.csv"))
 
   if not csv_files:
-    print(f"No CSV files found in {input_folder}")
+    print(f"No CSV files found in {INPUT_FOLDER}")
     print(f"Please place CSV files in the '{INPUT_FOLDER}' folder.")
     return
 
@@ -678,9 +690,9 @@ def main():
 
   # Process each store
   for store_number, store_df in stores:
-    process_store_data(str(store_number), store_df, output_folder, EMPLOYEE_INFO)
+    process_store_data(int(store_number), store_df, OUTPUT_FOLDER)  # type: ignore
 
-  print(f"\n✓ All PDFs saved to: {output_folder}")
+  print(f"\n✓ All PDFs saved to: {OUTPUT_FOLDER}")
 
 
 if __name__ == "__main__":

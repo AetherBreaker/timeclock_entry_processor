@@ -245,6 +245,9 @@ def configure_logging():
   paramiko = logging.getLogger("paramiko")
   paramiko.setLevel(logging.WARNING)
 
+  fonttools_subset = logging.getLogger("fontTools.subset")
+  fonttools_subset.setLevel(logging.WARNING)
+
   # scheduler = logging.getLogger("apscheduler")
   # scheduler.propagate = False
 
