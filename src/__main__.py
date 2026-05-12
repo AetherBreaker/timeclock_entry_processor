@@ -619,19 +619,19 @@ class TimelinePDF(FPDF):
 
 def process_store_data(store_number: int, store_df: DataFrame, output_base: Path) -> None:
   """Process data for a single store and generate PDFs by week."""
-  print(f"\n  Processing Store {store_number}:")
-  print(f"    {len(store_df)} entries")
-  print(f"    Date range: {store_df['Date'].min()} to {store_df['Date'].max()}")
+  logger.info(
+    f"Processing Store {store_number}\n  {len(store_df)} entries\n  Date range: {store_df['Date'].min()} to {store_df['Date'].max()}"
+  )
 
   # Get unique employees for this store and generate colors
   unique_employees = store_df["Employee Name"].unique().tolist()
-  print(f"    {len(unique_employees)} unique employees")
+  logger.info(f"  {len(unique_employees)} unique employees")
 
   employee_colors, group_colors = generate_employee_colors(unique_employees)
 
   # Group by weeks
   weeks = group_by_weeks(store_df)
-  print(f"    {len(weeks)} week(s)")
+  logger.info(f"  {len(weeks)} week(s)")
 
   # Calculate time range for axis
   min_time, max_time = calculate_time_range(store_df)
@@ -646,8 +646,7 @@ def process_store_data(store_number: int, store_df: DataFrame, output_base: Path
     pdf_filename = f"{week_end.strftime('%Y-%m-%d')}.pdf"
     pdf_path = store_output_dir / pdf_filename
 
-    print(f"    Rendering week {week_start} to {week_end} -> {pdf_filename}")
-    print(type(week_start), type(week_end))
+    logger.info(f"  Rendering week {week_start} to {week_end} -> {pdf_filename}")
 
     pdf = TimelinePDF(employee_colors, group_colors, store_number)
     pdf.render_week(week_start, week_end, week_df, min_time, max_time)
@@ -665,34 +664,34 @@ def main():
   csv_files = list(INPUT_FOLDER.glob("*.csv"))
 
   if not csv_files:
-    print(f"No CSV files found in {INPUT_FOLDER}")
-    print(f"Please place CSV files in the '{INPUT_FOLDER}' folder.")
+    logger.warning(f"No CSV files found in {INPUT_FOLDER}\nPlease place CSV files in the '{INPUT_FOLDER}' folder.")
     return
 
-  print(f"Found {len(csv_files)} CSV file(s) to process\n")
+  logger.info(f"Found {len(csv_files)} CSV file(s) to process")
 
   # Process each CSV file
   all_data: list[DataFrame] = []
   for csv_file in csv_files:
-    print(f"Loading {csv_file.name}...")
+    logger.info(f"Loading {csv_file.name}...")
     df = load_and_parse_data(csv_file)
     all_data.append(df)
-    print(f"  Loaded {len(df)} entries")
+    logger.info(f"  Loaded {len(df)} entries")
 
   # Combine all data
   combined_df = concat(all_data, ignore_index=True)
-  print(f"\nTotal entries loaded: {len(combined_df)}")
-  print(f"Overall date range: {combined_df['Date'].min()} to {combined_df['Date'].max()}")
+  logger.info(
+    f"Total entries loaded: {len(combined_df)}\nOverall date range: {combined_df['Date'].min()} to {combined_df['Date'].max()}"
+  )
 
   # Group by store
   stores = combined_df.groupby("Store Number")
-  print(f"\nProcessing {len(stores)} store(s)...")
+  logger.info(f"Processing {len(stores)} store(s)...")
 
   # Process each store
   for store_number, store_df in stores:
     process_store_data(int(store_number), store_df, OUTPUT_FOLDER)  # type: ignore
 
-  print(f"\n✓ All PDFs saved to: {OUTPUT_FOLDER}")
+  logger.info(f"✓ All PDFs saved to: {OUTPUT_FOLDER}")
 
 
 if __name__ == "__main__":
