@@ -5,7 +5,6 @@ import logging
 from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler, TimedRotatingFileHandler
 from pathlib import Path
-from queue import Queue
 from sys import platform
 from time import gmtime, localtime, strftime, time
 from typing import TYPE_CHECKING
@@ -16,29 +15,29 @@ from rich.logging import RichHandler
 from rich.traceback import install
 
 if TYPE_CHECKING:
+  from multiprocessing import Queue as ProcessQueue
+  from queue import Queue as ThreadQueue
   from typing import Literal
 
   from rich.console import ConsoleRenderable
   from rich.traceback import Traceback
 
 
-RICH_CONSOLE = Console(
-  width=None if platform == "win32" else 160,
-  log_time=platform == "win32",
-)
-
-install(show_locals=True)
-
-CWD = Path.cwd()
+RICH_CONSOLE: Console = None  # type: ignore
 
 
 PROJECT_NAME = "timeclockentryprocessor"
+LOGGING_BASE_NAME = "timeclockentryprocessor"
 
-max_width = 36
+LOGGING_TYPE: Literal["daily", "per_run"] = "per_run"
 
+DEFAULT_MAX_WIDTH = 36
+
+CWD = Path.cwd()
 
 LOG_LOC_FOLDER = SETTINGS.persisted_dir_loc / "logs"
-LOG_LOC_FOLDER.mkdir(exist_ok=True, parents=True)
+DEBUG_LOG_LOC = LOG_LOC_FOLDER / f"{LOGGING_BASE_NAME}_debug.txt"
+INFO_LOG_LOC = LOG_LOC_FOLDER / f"{LOGGING_BASE_NAME}.txt"
 
 MAX_WIDTH_FILE = LOG_LOC_FOLDER / "max_width.txt"
 
@@ -99,7 +98,7 @@ class FixedRichHandler(RichHandler):
 
 class FixedLogRecord(logging.LogRecord):
   def __init__(self, *args, **kwargs):
-    global max_width
+    global DEFAULT_MAX_WIDTH
     pathpath = Path(args[2])
 
     if "site-packages" in pathpath.parts:
@@ -122,10 +121,10 @@ class FixedLogRecord(logging.LogRecord):
 
     length = len(libpath)
 
-    if length > max_width:
-      max_width = length
+    if length > DEFAULT_MAX_WIDTH:
+      DEFAULT_MAX_WIDTH = length
       with MAX_WIDTH_FILE.open("w") as f:
-        f.write(str(max_width))
+        f.write(str(DEFAULT_MAX_WIDTH))
 
     self.libname = libname
     if "src." in libpath:
@@ -206,40 +205,35 @@ class CustomTimedRotatingFileHandler(TimedRotatingFileHandler):
     self.rolloverAt = self.computeRollover(currentTime)
 
 
-FILE_FORMATTER = FixedFormatter(
-  fmt=f"{{libpath: <{max_width}}} | [{{asctime}}] | {{levelname: >8}} | {{message}}",
-  datefmt=LOGGING_TIMESTAMP_FORMAT,
-  style="{",
-)
+ROOT = logging.getLogger()
+ROOT.setLevel(logging.DEBUG if __debug__ else logging.INFO)
 
 
-LOGGING_BASE_NAME = "timeclockentryprocessor"
+def configure_logging(mp: bool = False) -> ThreadQueue | ProcessQueue:
+  from multiprocessing import parent_process
 
+  if parent_process() is not None:
+    raise RuntimeError("configure_logging should only be called from the main process")
 
-DEBUG_LOG_LOC = LOG_LOC_FOLDER / f"{LOGGING_BASE_NAME}_debug.txt"
-INFO_LOG_LOC = LOG_LOC_FOLDER / f"{LOGGING_BASE_NAME}.txt"
+  global RICH_CONSOLE
+  RICH_CONSOLE = Console(
+    width=None if platform == "win32" else 160,
+    log_time=platform == "win32",
+  )
 
-# SCHEDULER_LOG_LOC = LOG_LOC_FOLDER / "scheduler_logs"
-# SCHEDULER_LOG_LOC.mkdir(exist_ok=True, parents=True)
+  install(show_locals=True)
 
-# APSCHEDULER_DEBUG_LOG_LOC = SCHEDULER_LOG_LOC / "scheduler_debug.txt"
-# APSCHEDULER_INFO_LOG_LOC = SCHEDULER_LOG_LOC / "scheduler.txt"
+  LOG_LOC_FOLDER.mkdir(exist_ok=True, parents=True)
 
+  if LOGGING_TYPE == "per_run":
+    debug_file_handler = RotatingFileHandler(DEBUG_LOG_LOC, maxBytes=0, backupCount=30, delay=True)
+    info_file_handler = RotatingFileHandler(INFO_LOG_LOC, maxBytes=0, backupCount=30, delay=True)
+    debug_file_handler.doRollover()
+    info_file_handler.doRollover()
+  else:
+    debug_file_handler = CustomTimedRotatingFileHandler(DEBUG_LOG_LOC, when="midnight", backupCount=14, delay=True)
+    info_file_handler = CustomTimedRotatingFileHandler(INFO_LOG_LOC, when="midnight", backupCount=14, delay=True)
 
-LOGGING_TYPE: Literal["daily", "per_run"] = "per_run"
-
-
-if LOGGING_TYPE == "per_run":
-  debug_file_handler = RotatingFileHandler(DEBUG_LOG_LOC, maxBytes=0, backupCount=30, delay=True)
-  info_file_handler = RotatingFileHandler(INFO_LOG_LOC, maxBytes=0, backupCount=30, delay=True)
-  debug_file_handler.doRollover()
-  info_file_handler.doRollover()
-else:
-  debug_file_handler = CustomTimedRotatingFileHandler(DEBUG_LOG_LOC, when="midnight", backupCount=14, delay=True)
-  nfo_handler = CustomTimedRotatingFileHandler(INFO_LOG_LOC, when="midnight", backupCount=14, delay=True)
-
-
-def configure_logging():
   logging.setLogRecordFactory(FixedLogRecord)
 
   paramiko = logging.getLogger("paramiko")
@@ -269,8 +263,6 @@ def configure_logging():
 
   # scheduler.addHandler(scheduler_queue_handler)
 
-  root = logging.getLogger()
-  root.setLevel(logging.DEBUG if __debug__ else logging.INFO)
   # root.setLevel(logging.DEBUG)
 
   debug_file_handler.setLevel(logging.DEBUG)
@@ -288,8 +280,19 @@ def configure_logging():
 
   console_info_handler.setLevel(logging.INFO)
 
-  debug_file_handler.setFormatter(FILE_FORMATTER)
-  info_file_handler.setFormatter(FILE_FORMATTER)
+  file_formatter = FixedFormatter(
+    fmt=f"{{libpath: <{DEFAULT_MAX_WIDTH}}} | [{{asctime}}] | {{levelname: >8}} | {{message}}",
+    datefmt=LOGGING_TIMESTAMP_FORMAT,
+    style="{",
+  )
+
+  debug_file_handler.setFormatter(file_formatter)
+  info_file_handler.setFormatter(file_formatter)
+
+  if mp:
+    from multiprocessing import Queue
+  else:
+    from queue import Queue
 
   log_queue = Queue(-1)
 
@@ -302,11 +305,23 @@ def configure_logging():
     respect_handler_level=True,
   )
 
-  root.addHandler(queue_handler)
-  root.addHandler(console_info_handler)
+  ROOT.addHandler(queue_handler)
+  ROOT.addHandler(console_info_handler)
 
   queue_listener.start()
   # scheduler_queue_listener.start()
 
   atexit.register(queue_listener.stop)
   # atexit.register(scheduler_queue_listener.stop)
+
+  return log_queue
+
+
+def configure_multiprocessing_logging(queue: ProcessQueue):
+  from multiprocessing import current_process
+
+  if current_process().name == "MainProcess":
+    raise RuntimeError("configure_multiprocessing_logging should only be called from child processes")
+
+  queue_handler = QueueHandler(queue)
+  ROOT.addHandler(queue_handler)

@@ -1,8 +1,10 @@
-from os import environ
+from multiprocessing import parent_process
 
-environ.setdefault("PYDANTIC_ERRORS_INCLUDE_URL", "false")
+if parent_process() is None:
+  from os import environ
 
+  environ.setdefault("PYDANTIC_ERRORS_INCLUDE_URL", "false")
 
-from logging_config import configure_logging  # noqa: E402
+  from logging_config import configure_logging  # noqa: E402
 
-configure_logging()
+  configure_logging()

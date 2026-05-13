@@ -6,9 +6,12 @@ showing when each employee was clocked in. Each employee is color-coded,
 and data is organized by calendar week (Monday-Sunday).
 """
 
+import pickle
 from colorsys import hsv_to_rgb, rgb_to_hsv
+from concurrent.futures import ProcessPoolExecutor
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from functools import partial
 from itertools import chain
 from logging import getLogger
 from pathlib import Path
@@ -255,20 +258,60 @@ def truncate_repeating_decimal(value: Decimal) -> str:
   return f"{value:06.3f}"
 
 
+def _cw_constant(value):
+  """Picklable replacement for the per-font lambda in TTFFont.cw.default_factory."""
+  return value
+
+
+# Cached pickle bytes of a font-loaded TimelinePDF template.
+# Built once on first call to _get_font_template() and reused for every
+# subsequent PDF so that font files are parsed from disk exactly once.
+_FONT_TEMPLATE_BYTES: bytes | None = None
+
+
+def _get_font_template() -> bytes:
+  """Return pickle bytes of a bare TimelinePDF with fonts already loaded.
+  The bytes are computed once and cached in _FONT_TEMPLATE_BYTES.
+  """
+  global _FONT_TEMPLATE_BYTES
+  if _FONT_TEMPLATE_BYTES is None:
+    template = TimelinePDF()
+    _FONT_TEMPLATE_BYTES = pickle.dumps(template, protocol=pickle.HIGHEST_PROTOCOL)
+    logger.debug(f"Font template pickled ({len(_FONT_TEMPLATE_BYTES):,} bytes)")
+  return _FONT_TEMPLATE_BYTES
+
+
 class TimelinePDF(FPDF):
   """Custom PDF class for rendering employee timelines."""
 
-  def __init__(self, employee_colors: EmployeeColors, group_colors: GroupColors, store_number: int):
+  def __init__(self):
     super().__init__(orientation="L", unit="mm", format="A4")  # Landscape orientation
-    self.employee_colors = employee_colors
-    self.group_colors = group_colors
-    self.store_number = store_number
     self.set_auto_page_break(False)
 
     # Add Roboto Mono fonts
     self.add_font("RobotoMono", "", str(CWD / "RobotoMono-VariableFont_wght.ttf"))
     self.add_font("RobotoMono", "B", str(CWD / "RobotoMono-VariableFont_wght.ttf"))
     self.add_font("RobotoMono", "I", str(CWD / "RobotoMono-Italic-VariableFont_wght.ttf"))
+
+    # Replace per-font lambdas with picklable equivalents so this instance
+    # can be serialized and restored without re-reading font files.
+    from collections import defaultdict
+
+    for font in self.fonts.values():
+      cw: defaultdict = font.cw  # type: ignore[assignment]  # annotated as dict but is defaultdict at runtime
+      default_val = cw.default_factory()  # type: ignore[misc]  # default_factory is always set for TTFFont.cw
+      cw.default_factory = partial(_cw_constant, default_val)
+
+    # Per-PDF attributes — populated by configure() after unpickling.
+    self.employee_colors: EmployeeColors = {}
+    self.group_colors: GroupColors = {}
+    self.store_number: int = 0
+
+  def configure(self, employee_colors: EmployeeColors, group_colors: GroupColors, store_number: int) -> None:
+    """Set per-PDF data after loading from the font template pickle."""
+    self.employee_colors = employee_colors
+    self.group_colors = group_colors
+    self.store_number = store_number
 
   def render_week(self, week_start: date, week_end: date, week_df: DataFrame, min_time: time, max_time: time):
     """Render a single week's timeline with horizontal time axis."""
@@ -648,7 +691,8 @@ def process_store_data(store_number: int, store_df: DataFrame, output_base: Path
 
     logger.info(f"  Rendering week {week_start} to {week_end} -> {pdf_filename}")
 
-    pdf = TimelinePDF(employee_colors, group_colors, store_number)
+    pdf = pickle.loads(_get_font_template())
+    pdf.configure(employee_colors, group_colors, store_number)
     pdf.render_week(week_start, week_end, week_df, min_time, max_time)
     pdf.output(str(pdf_path))
 
@@ -691,7 +735,7 @@ def main():
   for store_number, store_df in stores:
     process_store_data(int(store_number), store_df, OUTPUT_FOLDER)  # type: ignore
 
-  logger.info(f"✓ All PDFs saved to: {OUTPUT_FOLDER}")
+  logger.info(f"All PDFs saved to: {OUTPUT_FOLDER}")
 
 
 if __name__ == "__main__":
