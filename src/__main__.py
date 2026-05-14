@@ -10,16 +10,15 @@ import pickle
 from collections.abc import Callable
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import date, time, timedelta
-from decimal import Decimal
 from logging import getLogger
 from os import environ
 from pathlib import Path
 from sys import platform
 
 from employee_info import get_employee_info
-from logging_config import configure_logging, configure_multiprocessing_logging
-from pandas import DataFrame, concat, read_csv, to_datetime
-from pdf_gen import TimelinePDF, start_mp_pdf_gen
+from logging_config import configure_logging
+from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
+from pdf_gen import TimelinePDF, init_pdf_worker, start_mp_pdf_gen
 from rich.console import Console
 from rich_custom import ProgressCustom
 
@@ -47,15 +46,11 @@ def load_and_parse_data(csv_path: Path) -> DataFrame:
   mask = df["Out Time Parsed"].isna()
   df.loc[mask, "Out Time Parsed"] = df.loc[mask, "In Time"].dt.floor("D") + timedelta(hours=DEFAULT_OUT_TIME.hour)
 
-  # Parse "Time Worked" column to Decimal for precision (vectorized with fallback)
-  # Format: "1.74 Hours" -> Decimal('1.74')
-  # First, handle NaN/null values by filling them with "0 Hours"
-  df["Time Worked"] = df["Time Worked"].fillna("0 Hours")
-  df["Hours Worked"] = df["Time Worked"].astype(str).str.replace(" Hours", "").str.strip()
-  # Apply still needed for Decimal conversion but much faster with pre-cleaned strings
-  df["Hours Worked"] = df["Hours Worked"].apply(
-    lambda x: Decimal(x) if x and x not in ("", "nan", "None", "NaN") else Decimal(0)  # type: ignore
-  )
+  # Parse "Time Worked" column to float (fully vectorized via to_numeric)
+  df["Hours Worked"] = to_numeric(
+    df["Time Worked"].fillna("0 Hours").astype(str).str.replace(" Hours", "").str.strip(),
+    errors="coerce",
+  ).fillna(0.0)
 
   # Extract date for grouping (already vectorized)
   df["Date"] = df["In Time"].dt.date
@@ -112,7 +107,6 @@ def calculate_time_range(df: DataFrame) -> tuple[time, time]:
 
 
 def process_store_data(
-  pickled_pdf_inst: bytes,
   store_number: int,
   store_df: DataFrame,
   employee_id_to_group: dict[str, str],
@@ -136,7 +130,6 @@ def process_store_data(
 
     fut = proc_pool.submit(
       start_mp_pdf_gen,
-      pickled_pdf_inst,
       unique_employees,
       employee_id_to_group,
       store_number,
@@ -205,7 +198,7 @@ if __name__ == "__main__":
   with ProgressCustom(console=rich_console) as progress:
     with progress.add_task("[magenta]Processing weeks...") as data_task:
       with (
-        ProcessPoolExecutor(initializer=configure_multiprocessing_logging, initargs=(queues,)) as procpool,  # type: ignore
+        ProcessPoolExecutor(initializer=init_pdf_worker, initargs=(queues, pickled_pdf_inst)) as procpool,  # type: ignore
         ThreadPoolExecutor() as threadpool,
       ):
         proc_futures = []
@@ -217,7 +210,6 @@ if __name__ == "__main__":
         thread_futures = [
           threadpool.submit(
             process_store_data,
-            pickled_pdf_inst,
             int(store_number),  # type: ignore
             store_df,
             EMPLOYEE_ID_TO_GROUP,

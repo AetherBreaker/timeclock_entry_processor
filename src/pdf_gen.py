@@ -1,7 +1,6 @@
 import pickle
 from colorsys import hsv_to_rgb
 from datetime import date, datetime, time
-from decimal import Decimal
 from functools import partial
 from itertools import chain
 from logging import getLogger
@@ -14,6 +13,11 @@ from pandas import DataFrame
 CWD = Path.cwd()
 logger = getLogger(__name__)
 
+# Worker-process-local cache for the PDF font template pickle.
+# Populated once by init_pdf_worker() so the ~310 KB font blob is transmitted
+# via IPC only N_workers times (pool initializer) instead of once per task.
+_PDF_TEMPLATE_BYTES: bytes | None = None
+
 
 type EmployeeColors = dict[EmployeeName, tuple[int, int, int]]
 type GroupLabel = str
@@ -24,8 +28,8 @@ def to_255(r, g, b):
   return (int(r * 255), int(g * 255), int(b * 255))
 
 
-def truncate_repeating_decimal(value: Decimal) -> str:
-  """Format a Decimal to exactly 3 decimal places with 2-digit integer padding.
+def truncate_repeating_decimal(value: float) -> str:
+  """Format a float to exactly 3 decimal places with 2-digit integer padding.
 
   Examples:
     24.21666666... -> "24.217"
@@ -47,10 +51,9 @@ class TimelinePDF(FPDF):
     super().__init__(orientation="L", unit="mm", format="A4")  # Landscape orientation
     self.set_auto_page_break(False)
 
-    # Add Roboto Mono fonts
-    self.add_font("RobotoMono", "", str(CWD / "RobotoMono-VariableFont_wght.ttf"))
-    self.add_font("RobotoMono", "B", str(CWD / "RobotoMono-VariableFont_wght.ttf"))
-    self.add_font("RobotoMono", "I", str(CWD / "RobotoMono-Italic-VariableFont_wght.ttf"))
+    # Add Roboto Mono fonts (regular and bold only; italic is never used in rendering)
+    self.add_font("RobotoMono", "", str(CWD / "RobotoMono-Regular.ttf"))
+    self.add_font("RobotoMono", "B", str(CWD / "RobotoMono-Bold.ttf"))
 
     # Replace per-font lambdas with picklable equivalents so this instance
     # can be serialized and restored without re-reading font files.
@@ -77,11 +80,11 @@ class TimelinePDF(FPDF):
       "Manager": to_255(*(hsv_to_rgb(0.08, 0.85, 0.85))),  # Orange
       "Office": to_255(*(hsv_to_rgb(0.15, 0.85, 0.85))),  # Yellow
     }
-    self.RESERVED_HUES: list[Decimal] = [
-      Decimal("0.0"),  # Red District Manager
-      Decimal("0.08"),  # Orange Manager
-      Decimal("0.15"),  # Yellow Office
-      Decimal("0.29"),  # pre reserving green space because green is massive and too similar
+    self.RESERVED_HUES: list[float] = [
+      0.0,  # Red District Manager
+      0.08,  # Orange Manager
+      0.15,  # Yellow Office
+      0.29,  # pre reserving green space because green is massive and too similar
     ]
 
   def configure(self, unique_employees: list[str], employee_id_to_group: dict[str, str], store_number: int) -> None:
@@ -101,8 +104,6 @@ class TimelinePDF(FPDF):
 
     idx = 0
 
-    color_index: set[str | int] = set()
-
     for employee in sorted(employees):
       # Extract employee ID from "ID - NAME" format
       employee_id = employee.split(" - ")[0].strip() if " - " in employee else employee
@@ -116,26 +117,30 @@ class TimelinePDF(FPDF):
         idx += 1
 
       employee_color_assigned_map[employee] = result
-      if result != "Admin":
-        color_index.add(result)
+
+    # Build inverse map: index/label -> [employees] for O(1) color assignment,
+    # replacing the previous O(n²) scan over employee_color_assigned_map per color.
+    idx_to_employees: dict[int | str, list[str]] = {}
+    for employee, assigned_idx in employee_color_assigned_map.items():
+      idx_to_employees.setdefault(assigned_idx, []).append(employee)
 
     # Separate group labels from numeric employee indices
-    numeric_indices = sorted([idx for idx in color_index if isinstance(idx, int)])
+    numeric_indices = sorted(k for k in idx_to_employees if isinstance(k, int))
 
     saturation = 0.85
     value = 0.65
 
     # Generate colors for numeric employee indices, avoiding reserved hues
     if numeric_indices:
-      num_colors = Decimal(len(numeric_indices))
-      hue_threshold = Decimal("0.09")  # Minimum distance from reserved hues
+      num_colors = len(numeric_indices)
+      hue_threshold = 0.09  # Minimum distance from reserved hues
 
       # Try to generate hues evenly distributed while avoiding reserved hues
-      employee_hues: list[Decimal] = []
-      attempts = int(num_colors) * 10  # Oversample to find suitable hues
+      employee_hues: list[float] = []
+      attempts = num_colors * 10  # Oversample to find suitable hues
 
       for i in range(attempts):
-        candidate_hue = Decimal(i) / attempts
+        candidate_hue = i / attempts
         # Check distance to all reserved hues (accounting for circular nature of hue)
         # Use pre-calculated RESERVED_HUES instead of recalculating
         min_distance = min(
@@ -155,18 +160,18 @@ class TimelinePDF(FPDF):
       # Assign generated colors to numeric indices
       for i, num_idx in enumerate(numeric_indices):
         hue = employee_hues[i]
-        r, g, b = hsv_to_rgb(float(hue), saturation, value)
+        r, g, b = hsv_to_rgb(hue, saturation, value)
         col_tuple = to_255(r, g, b)
 
-        # Assign this color to all employees with this numeric index
-        for employee, assigned_idx in employee_color_assigned_map.items():
-          if assigned_idx == num_idx:
-            colors[employee] = col_tuple
+        for employee in idx_to_employees.get(num_idx, []):
+          colors[employee] = col_tuple
 
     # Assign group colors from GROUP_COLORS
-    for employee, assigned_idx in employee_color_assigned_map.items():
-      if isinstance(assigned_idx, str):  # Group label
-        colors[employee] = self.GROUP_COLORS[assigned_idx]
+    for group_label, group_employees in idx_to_employees.items():
+      if isinstance(group_label, str):
+        color = self.GROUP_COLORS[group_label]
+        for employee in group_employees:
+          colors[employee] = color
 
     return colors
 
@@ -280,24 +285,41 @@ class TimelinePDF(FPDF):
     min_width_for_label = 15  # Minimum width in mm to show label
     min_height_for_label = 3  # Minimum height in mm to show label
 
+    # Pre-compute display name candidates for each unique employee to avoid
+    # re-parsing strings and re-splitting in the innermost block-drawing loop.
+    # Format: (candidates list, must_show_last) where must_show_last=True means
+    # the final candidate is always shown even when it overflows the block width.
+    _emp_label_data: dict[str, tuple[list[str], bool]] = {}
+    for emp in week_df["Employee Name"].unique():
+      parts = emp.split(" - ", 1)
+      if len(parts) > 1:
+        words = parts[1].split()
+        if len(words) >= 2:
+          fn, ln = words[0].title(), words[-1].title()
+          _emp_label_data[emp] = ([f"{fn} {ln}", f"{fn} {ln[0]}.", f"{fn[0]}.{ln[0]}."], False)
+        elif len(words) == 1:
+          word = words[0].title()
+          _emp_label_data[emp] = ([word, word[:6]], True)
+
+    # Cache for get_string_width results: (text, font_size_pt) -> width in mm.
+    # Since there are only ~N_employees * 3 unique label strings and 2 font sizes,
+    # this eliminates redundant fpdf char-width lookups across days and blocks.
+    _width_cache: dict[tuple[str, int], float] = {}
+
+    # Pre-group week_df by date once (O(n)) to avoid repeating O(n) boolean
+    # filtering inside the day loop (previously O(n * num_days) total).
+    date_groups: dict = {d: grp for d, grp in week_df.groupby("Date", sort=False)}
+
     # Draw daily rows with employee blocks
     for i, day_date in enumerate(dates_in_week):
       row_y = axis_y + i * row_height
 
-      # Get entries for this date
-      day_data = week_df[week_df["Date"] == day_date]
-
-      # Group by employee and collect all their time blocks for this day
-      employee_blocks: dict[str, list[tuple[datetime, datetime]]] = {}
-      for _, row in day_data.iterrows():
-        employee = row["Employee Name"]
-        in_time: datetime = row["In Time"]
-        out_time: datetime = row["Out Time Parsed"]
-
-        if employee not in employee_blocks:
-          employee_blocks[employee] = []
-
-        employee_blocks[employee].append((in_time, out_time))
+      # Group by employee and collect all their time blocks for this day.
+      # groupby dict-comprehension avoids row-by-row Python iteration (iterrows overhead).
+      employee_blocks: dict[str, list[tuple[datetime, datetime]]] = {
+        emp: list(zip(grp["In Time"], grp["Out Time Parsed"]))
+        for emp, grp in date_groups[day_date].groupby("Employee Name", sort=False)
+      }
 
       # Draw blocks for each employee (stacked vertically if needed)
       employee_list = sorted(employee_blocks.keys())
@@ -314,12 +336,12 @@ class TimelinePDF(FPDF):
 
         # Draw all blocks for this employee
         for in_time, out_time in blocks:
-          # Calculate horizontal position using Decimal for precision
-          in_hour = in_time.hour + Decimal(in_time.minute) / 60
-          out_hour = out_time.hour + Decimal(out_time.minute) / 60
+          # float64 has ample precision for minute-level positions (no Decimal needed)
+          in_hour = in_time.hour + in_time.minute / 60.0
+          out_hour = out_time.hour + out_time.minute / 60.0
 
-          block_x_start = self.margin_left + float(in_hour - start_hour) * pixels_per_hour
-          block_width = float(out_hour - in_hour) * pixels_per_hour
+          block_x_start = self.margin_left + (in_hour - start_hour) * pixels_per_hour
+          block_width = (out_hour - in_hour) * pixels_per_hour
 
           # Draw colored rectangle
           self.set_fill_color(*color)
@@ -327,89 +349,78 @@ class TimelinePDF(FPDF):
           self.rect(block_x_start, block_y, block_width, employee_block_height, "FD")
 
           if block_width >= min_width_for_label and employee_block_height >= min_height_for_label:
-            # Extract first and last name from "ID - FIRST LAST" format
-            name_parts = employee.split(" - ")
-            if len(name_parts) > 1:
-              full_name = name_parts[1]
-              name_words = full_name.split()
-
-              if len(name_words) >= 2:
-                first_name = name_words[0].title()
-                last_name = name_words[-1].title()
-
-                # Set font to measure text width (use larger font for taller blocks)
-                if employee_block_height < 5:
-                  self.set_font("RobotoMono", "B", 8)
-                else:
-                  self.set_font("RobotoMono", "B", 9)
-
-                # Try full first name + full last name
-                display_name = f"{first_name} {last_name}"
-                text_width = self.get_string_width(display_name)
-
-                # If doesn't fit, try full first name + last initial
-                if text_width > block_width - 2:  # 2mm padding
-                  display_name = f"{first_name} {last_name[0]}."
-                  text_width = self.get_string_width(display_name)
-
-                  # If still doesn't fit, use both initials
-                if text_width > block_width - 2:
-                  display_name = f"{first_name[0]}.{last_name[0]}."
-                  text_width = self.get_string_width(display_name)
-
-                # If even initials don't fit, give up
-                if text_width > block_width - 2:
-                  display_name = ""
-              elif len(name_words) == 1:
-                # Only one word in name
-                display_name = name_words[0].title()
-                # Check if it fits
-                if employee_block_height < 5:
-                  self.set_font("RobotoMono", "B", 8)
-                else:
-                  self.set_font("RobotoMono", "B", 9)
-                text_width = self.get_string_width(display_name)
-                if text_width > block_width - 2:
-                  display_name = display_name[:6]  # Truncate if needed
-                  text_width = self.get_string_width(display_name)  # Recalculate for truncated name
-              else:
-                display_name = ""
-            else:
+            label_data = _emp_label_data.get(employee)
+            if label_data is not None:
+              candidates, must_show_last = label_data
+              font_size = 8 if employee_block_height < 5 else 9
               display_name = ""
+              text_width = 0.0
+              for c_idx, candidate in enumerate(candidates):
+                key = (candidate, font_size)
+                if key not in _width_cache:
+                  self.set_font("RobotoMono", "B", font_size)
+                  _width_cache[key] = self.get_string_width(candidate)
+                w = _width_cache[key]
+                is_last = c_idx == len(candidates) - 1
+                if w <= block_width - 2 or (is_last and must_show_last):
+                  display_name = candidate
+                  text_width = w
+                  break
 
-            if display_name:
-              # Use white text for better contrast on colored blocks
-              self.set_text_color(255, 255, 255)
+              if display_name:
+                self.set_font("RobotoMono", "B", font_size)
+                self.set_text_color(255, 255, 255)
+                text_x = block_x_start + block_width / 2
+                text_y = block_y + employee_block_height / 2
+                self.set_xy(text_x - text_width / 2, text_y - 2)
+                self.cell(text_width, 4, display_name, align="L")
+                self.set_text_color(0, 0, 0)
 
-              # Font already set above during width calculation
-              # Calculate center position for text (no rotation needed for horizontal blocks)
-              text_x = block_x_start + block_width / 2
-              text_y = block_y + employee_block_height / 2
+          # Draw clock-in/clock-out time labels at left and right ends of block
+          if employee_block_height >= min_height_for_label:
+            time_font_size = 8
+            h_in = in_time.hour % 12 or 12
+            h_out = out_time.hour % 12 or 12
+            in_label = f"{h_in}:{in_time.minute:02d}{'AM' if in_time.hour < 12 else 'PM'}"
+            out_label = f"{h_out}:{out_time.minute:02d}{'AM' if out_time.hour < 12 else 'PM'}"
 
-              # Get final text width for the display_name we're actually using
-              text_width = self.get_string_width(display_name)
-              # Draw text centered in the block (horizontally, no rotation)
-              self.set_xy(text_x - text_width / 2, text_y - 2)
-              self.cell(text_width, 4, display_name, align="L")
+            key_in = (in_label, time_font_size)
+            if key_in not in _width_cache:
+              self.set_font("RobotoMono", "", time_font_size)
+              _width_cache[key_in] = self.get_string_width(in_label)
+            in_label_w = _width_cache[key_in]
 
-              # Reset text color to black
-              self.set_text_color(0, 0, 0)
+            key_out = (out_label, time_font_size)
+            if key_out not in _width_cache:
+              self.set_font("RobotoMono", "", time_font_size)
+              _width_cache[key_out] = self.get_string_width(out_label)
+            out_label_w = _width_cache[key_out]
 
-    # Calculate total hours for each employee in this week
-    # Sum the "Hours Worked" column (already in Decimal) for each employee
-    employee_hours = {}
-    for _, row in week_df.iterrows():
-      employee = row["Employee Name"]
-      hours_worked = row["Hours Worked"]
+            time_pad = 1.0
+            text_y = block_y + employee_block_height / 2
 
-      if employee not in employee_hours:
-        employee_hours[employee] = Decimal(0)
-      employee_hours[employee] += hours_worked
+            self.set_font("RobotoMono", "", time_font_size)
+            self.set_text_color(255, 255, 255)
+
+            if in_label_w + time_pad * 2 <= block_width:
+              self.set_xy(block_x_start + time_pad, text_y - 2)
+              self.cell(in_label_w, 4, in_label, align="L")
+
+            if out_label_w + time_pad * 2 <= block_width:
+              self.set_xy(block_x_start + block_width - out_label_w - time_pad - 2, text_y - 2)
+              self.cell(out_label_w, 4, out_label, align="L")
+
+            self.set_text_color(0, 0, 0)
+
+    # Calculate total hours for each employee in this week.
+    employee_hours: dict[str, float] = {
+      str(emp): float(grp["Hours Worked"].sum()) for emp, grp in week_df.groupby("Employee Name", sort=False)
+    }
 
     # Draw legend at bottom with hours
     self.draw_legend(self.margin_left, page_height - self.margin_bottom + 5, employee_hours)
 
-  def draw_legend(self, x: float, y: float, employee_hours: dict[str, Decimal] = None):
+  def draw_legend(self, x: float, y: float, employee_hours: dict[str, float] = None):
     # sourcery skip: extract-duplicate-method
     """Draw employee color legend with total hours and group color legend."""
     if employee_hours is None:
@@ -422,7 +433,7 @@ class TimelinePDF(FPDF):
     self.set_font("RobotoMono", "", 7)
     legend_y = y + 5  # Reduced from 6 to save space
 
-    sorted_employees = sorted(filter(lambda e: employee_hours.get(e, Decimal(0)) > 0, self.employee_colors.keys()))
+    sorted_employees = sorted(filter(lambda e: employee_hours.get(e, 0.0) > 0, self.employee_colors.keys()))
 
     # Calculate maximum rows that fit on page
     page_height = self.h
@@ -450,7 +461,7 @@ class TimelinePDF(FPDF):
     for i, employee in enumerate(sorted_employees):
       # Employee name and hours (full name, no truncation)
       # Get total hours for this employee
-      total_hours = employee_hours.get(employee, Decimal(0))
+      total_hours = employee_hours.get(employee, 0.0) or 0.0
 
       color = self.employee_colors[employee]
 
@@ -517,8 +528,21 @@ class TimelinePDF(FPDF):
         self.cell(group_legend_width - 4, 3, group_name, align="L")
 
 
+def init_pdf_worker(logging_queues, pickled_bytes: bytes) -> None:
+  """ProcessPoolExecutor initializer: cache the PDF font template and configure logging.
+
+  Called once per worker process so the font template is transmitted via IPC
+  only N_workers times (not once per task), eliminating repeated copies of the
+  ~310 KB font blob across all store-week tasks.
+  """
+  from logging_config import configure_multiprocessing_logging
+
+  configure_multiprocessing_logging(logging_queues)
+  global _PDF_TEMPLATE_BYTES
+  _PDF_TEMPLATE_BYTES = pickled_bytes
+
+
 def start_mp_pdf_gen(
-  pickled_pdf_inst: bytes,
   unique_employees: list[str],
   employee_id_to_group: dict[str, str],
   store_number: int,
@@ -533,7 +557,7 @@ def start_mp_pdf_gen(
     f"""Processing Store {store_number}
     Date range: {week_start} to {week_end}"""
   )
-  pdf: TimelinePDF = pickle.loads(pickled_pdf_inst)
+  pdf: TimelinePDF = pickle.loads(_PDF_TEMPLATE_BYTES)  # type: ignore[arg-type]
   pdf.configure(unique_employees, employee_id_to_group, store_number)
   pdf.render_week(week_start, week_end, week_df, min_time, max_time)
   pdf.output(str(pdf_path))
@@ -541,3 +565,98 @@ def start_mp_pdf_gen(
     f"""Finished {store_number} - {week_start} to {week_end}
     Saved to: {pdf_path}"""
   )
+
+
+if __name__ == "__main__":
+  import pickle
+  from datetime import time, timedelta
+  from logging import getLogger
+  from pathlib import Path
+  from sys import platform
+
+  from employee_info import get_employee_info
+  from logging_config import configure_logging
+  from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
+  from pdf_gen import TimelinePDF
+  from rich.console import Console
+
+  CWD = Path.cwd()
+
+  # Constants
+  INPUT_FOLDER = CWD / "input"
+  INPUT_FOLDER.mkdir(exist_ok=True)  # Create input folder if it doesn't exist
+  OUTPUT_FOLDER = CWD / "output"
+  OUTPUT_FOLDER.mkdir(exist_ok=True)  # Create output folder if it doesn't exist
+
+  DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
+  # Load employee group information
+  EMPLOYEE_INFO = get_employee_info()
+
+  # Create a dictionary mapping employee ID to group for O(1) lookups (instead of DataFrame filtering)
+  EMPLOYEE_ID_TO_GROUP: dict[str, str] = dict(zip(EMPLOYEE_INFO["id"], EMPLOYEE_INFO["group"]))
+  rich_console = Console(
+    width=None if platform == "win32" else 160,
+    log_time=platform == "win32",
+  )
+  queues = configure_logging(rich_console, mp=True)
+  INPUT_FOLDER.mkdir(exist_ok=True)
+
+  DEFAULT_OUT_TIME = time(21, 0)
+
+  def _load(csv_path: Path) -> DataFrame:
+    df = read_csv(csv_path)
+    df = df[df["Employee Name"].notna() & (df["Employee Name"] != "")]
+    df["In Time"] = to_datetime(df["In Time"], format="%m/%d/%Y %I:%M %p")
+    df["Out Time"] = df["Out Time"].replace("N/A", None)
+    df["Out Time Parsed"] = to_datetime(df["Out Time"], format="%m/%d/%Y %I:%M %p", errors="coerce")
+    mask = df["Out Time Parsed"].isna()
+    df.loc[mask, "Out Time Parsed"] = df.loc[mask, "In Time"].dt.floor("D") + timedelta(hours=DEFAULT_OUT_TIME.hour)
+    df["Hours Worked"] = to_numeric(
+      df["Time Worked"].fillna("0 Hours").astype(str).str.replace(" Hours", "").str.strip(),
+      errors="coerce",
+    ).fillna(0.0)
+    df["Date"] = df["In Time"].dt.date
+    df["Store Number"] = df["Store"].astype(str).str.split(" - ").str[0].str.strip().str.zfill(3)
+    df["Store Number"] = df["Store Number"].where(df["Store"].notna() & df["Store"].astype(str).str.contains(" - "), "Unknown")
+    return df
+
+  def _group_by_weeks(df: DataFrame) -> dict[tuple, DataFrame]:
+    weeks: dict = {}
+    for dt in df["Date"].unique():
+      week_start = dt - timedelta(days=dt.weekday())
+      week_end = week_start + timedelta(days=6)
+      weeks.setdefault((week_start, week_end), []).append(dt)
+    return {k: df[df["Date"].isin(v)] for k, v in sorted(weeks.items())}
+
+  def _time_range(df: DataFrame) -> tuple[time, time]:
+    all_times = concat([df["In Time"].dt.time, df["Out Time Parsed"].dt.time])
+    min_h = all_times.min().hour
+    max_h = all_times.max().hour + (0 if all_times.max().minute == 0 else 1)
+    return time(min_h, 0), time(min(max_h, 23), 0 if max_h < 24 else 59)
+
+  input_folder = CWD / "input"
+  csv_files = list(input_folder.glob("*.csv"))
+  if not csv_files:
+    raise FileNotFoundError(f"No CSV files found in {input_folder}")
+
+  combined_df = concat([_load(f) for f in csv_files], ignore_index=True)
+
+  employee_info = get_employee_info()
+  employee_id_to_group: dict[str, str] = dict(zip(employee_info["id"], employee_info["group"]))
+
+  # Pick the first store and first week
+  first_store_number, first_store_df = next(iter(combined_df.groupby("Store Number")))
+  first_week_key, first_week_df = next(iter(_group_by_weeks(first_store_df).items()))
+  week_start, week_end = first_week_key
+
+  unique_employees = first_store_df["Employee Name"].unique().tolist()
+  min_time, max_time = _time_range(first_store_df)
+
+  output_path = CWD / "output" / f"TEST_SFT{int(first_store_number):0>3}_{week_end.strftime('%Y-%m-%d')}.pdf"  # type: ignore
+  output_path.parent.mkdir(parents=True, exist_ok=True)
+
+  pdf = TimelinePDF()
+  pdf.configure(unique_employees, employee_id_to_group, int(first_store_number))  # type: ignore
+  pdf.render_week(week_start, week_end, first_week_df, min_time, max_time)
+  pdf.output(str(output_path))
+  logger.info(f"Test PDF saved to: {output_path}")
