@@ -1,13 +1,12 @@
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
-from logging_config import RICH_CONSOLE
 from rich.console import Console
 from rich_custom import ProgressCustom
 
 
 @contextmanager
-def get_active_progress(console: Console = RICH_CONSOLE) -> Iterator[ProgressCustom]:
+def get_active_progress(console: Console) -> Iterator[ProgressCustom]:
   ephemeral = True
   # Progress instances are usually found inside the active Live instance
   if console._live_stack:

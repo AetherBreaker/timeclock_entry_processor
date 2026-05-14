@@ -6,7 +6,6 @@ from threading import RLock
 from types import TracebackType
 from typing import TYPE_CHECKING, cast
 
-from logging_config import RICH_CONSOLE
 from rich.live import Live
 from rich.progress import (
   BarColumn,
@@ -68,7 +67,7 @@ class ProgressCustom(Progress):
   def __init__(
     self,
     *columns: str | ProgressColumn,
-    console: Console | None = RICH_CONSOLE,
+    console: Console,
     auto_refresh: bool = True,
     refresh_per_second: float = 4,
     speed_estimate_period: float = 30.0,

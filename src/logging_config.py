@@ -23,9 +23,6 @@ if TYPE_CHECKING:
   from rich.traceback import Traceback
 
 
-RICH_CONSOLE: Console = None  # type: ignore
-
-
 PROJECT_NAME = "timeclockentryprocessor"
 LOGGING_BASE_NAME = "timeclockentryprocessor"
 
@@ -209,21 +206,24 @@ ROOT = logging.getLogger()
 ROOT.setLevel(logging.DEBUG if __debug__ else logging.INFO)
 
 
-def configure_logging(mp: bool = False) -> ThreadQueue | ProcessQueue:
+logging.setLogRecordFactory(FixedLogRecord)
+
+paramiko = logging.getLogger("paramiko")
+paramiko.setLevel(logging.WARNING)
+
+fonttools_subset = logging.getLogger("fontTools.subset")
+fonttools_subset.setLevel(logging.WARNING)
+
+
+def configure_logging(rich_console: Console, mp: bool = False) -> tuple[ThreadQueue | ProcessQueue, ...]:
   from multiprocessing import parent_process
 
   if parent_process() is not None:
     raise RuntimeError("configure_logging should only be called from the main process")
 
-  global RICH_CONSOLE
-  RICH_CONSOLE = Console(
-    width=None if platform == "win32" else 160,
-    log_time=platform == "win32",
-  )
+  LOG_LOC_FOLDER.mkdir(exist_ok=True, parents=True)
 
   install(show_locals=True)
-
-  LOG_LOC_FOLDER.mkdir(exist_ok=True, parents=True)
 
   if LOGGING_TYPE == "per_run":
     debug_file_handler = RotatingFileHandler(DEBUG_LOG_LOC, maxBytes=0, backupCount=30, delay=True)
@@ -234,51 +234,8 @@ def configure_logging(mp: bool = False) -> ThreadQueue | ProcessQueue:
     debug_file_handler = CustomTimedRotatingFileHandler(DEBUG_LOG_LOC, when="midnight", backupCount=14, delay=True)
     info_file_handler = CustomTimedRotatingFileHandler(INFO_LOG_LOC, when="midnight", backupCount=14, delay=True)
 
-  logging.setLogRecordFactory(FixedLogRecord)
-
-  paramiko = logging.getLogger("paramiko")
-  paramiko.setLevel(logging.WARNING)
-
-  fonttools_subset = logging.getLogger("fontTools.subset")
-  fonttools_subset.setLevel(logging.WARNING)
-
-  # scheduler = logging.getLogger("apscheduler")
-  # scheduler.propagate = False
-
-  # scheduler_log_queue = Queue(-1)
-
-  # scheduler_queue_handler = QueueHandler(scheduler_log_queue)
-
-  # scheduler_info_handler = CustomTimedRotatingFileHandler(APSCHEDULER_INFO_LOG_LOC, when="midnight", backupCount=14, delay=True)
-  # scheduler_debug_handler = CustomTimedRotatingFileHandler(APSCHEDULER_DEBUG_LOG_LOC, when="midnight", backupCount=14, delay=True)
-  # scheduler_info_handler.setLevel(logging.INFO)
-  # scheduler_debug_handler.setLevel(logging.DEBUG)
-
-  # scheduler_queue_listener = QueueListener(
-  #   scheduler_log_queue,
-  #   scheduler_debug_handler,
-  #   scheduler_info_handler,
-  #   respect_handler_level=True,
-  # )
-
-  # scheduler.addHandler(scheduler_queue_handler)
-
-  # root.setLevel(logging.DEBUG)
-
   debug_file_handler.setLevel(logging.DEBUG)
-
   info_file_handler.setLevel(logging.INFO)
-
-  console_info_handler = FixedRichHandler(
-    # level=logging.DEBUG if __debug__ else logging.INFO,
-    show_time=platform == "win32",
-    console=RICH_CONSOLE,
-    rich_tracebacks=True,
-    log_time_format=LOGGING_TIMESTAMP_FORMAT,
-    tracebacks_show_locals=True,
-  )
-
-  console_info_handler.setLevel(logging.INFO)
 
   file_formatter = FixedFormatter(
     fmt=f"{{libpath: <{DEFAULT_MAX_WIDTH}}} | [{{asctime}}] | {{levelname: >8}} | {{message}}",
@@ -289,39 +246,69 @@ def configure_logging(mp: bool = False) -> ThreadQueue | ProcessQueue:
   debug_file_handler.setFormatter(file_formatter)
   info_file_handler.setFormatter(file_formatter)
 
+  console_info_handler = FixedRichHandler(
+    # level=logging.DEBUG if __debug__ else logging.INFO,
+    show_time=platform == "win32",
+    console=rich_console,
+    rich_tracebacks=True,
+    log_time_format=LOGGING_TIMESTAMP_FORMAT,
+    tracebacks_show_locals=True,
+  )
+
+  console_info_handler.setLevel(logging.INFO)
+
   if mp:
     from multiprocessing import Queue
   else:
     from queue import Queue
 
-  log_queue = Queue(-1)
+  file_log_queue = Queue(-1)
+  console_log_queue = Queue(-1)
 
-  queue_handler = QueueHandler(log_queue)
+  queue_handler = QueueHandler(file_log_queue)
+  console_queue_handler = QueueHandler(console_log_queue)
 
-  queue_listener = QueueListener(
-    log_queue,
+  handlers_for_queue: list[logging.Handler] = [
+    debug_file_handler,
+    info_file_handler,
+  ]
+
+  if mp:
+    handlers_for_queue.append(console_info_handler)
+
+  else:
+    ROOT.addHandler(console_info_handler)
+
+  file_queue_listener = QueueListener(
+    file_log_queue,
     debug_file_handler,
     info_file_handler,
     respect_handler_level=True,
   )
+  console_queue_listener = QueueListener(
+    console_log_queue,
+    console_info_handler,
+    respect_handler_level=True,
+  )
 
   ROOT.addHandler(queue_handler)
-  ROOT.addHandler(console_info_handler)
+  ROOT.addHandler(console_queue_handler)
 
-  queue_listener.start()
-  # scheduler_queue_listener.start()
+  file_queue_listener.start()
+  console_queue_listener.start()
 
-  atexit.register(queue_listener.stop)
-  # atexit.register(scheduler_queue_listener.stop)
+  atexit.register(file_queue_listener.stop)
+  atexit.register(console_queue_listener.stop)
 
-  return log_queue
+  return file_log_queue, console_log_queue
 
 
-def configure_multiprocessing_logging(queue: ProcessQueue):
+def configure_multiprocessing_logging(queues: tuple[ProcessQueue, ...]):
   from multiprocessing import current_process
 
   if current_process().name == "MainProcess":
     raise RuntimeError("configure_multiprocessing_logging should only be called from child processes")
 
-  queue_handler = QueueHandler(queue)
-  ROOT.addHandler(queue_handler)
+  for queue in queues:
+    queue_handler = QueueHandler(queue)
+    ROOT.addHandler(queue_handler)

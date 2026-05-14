@@ -240,3 +240,6 @@ __marimo__/
 .streamlit/secrets.toml
 RobotoMono-Italic-VariableFont_wght.ttf
 RobotoMono-VariableFont_wght.ttf
+
+input/
+output/

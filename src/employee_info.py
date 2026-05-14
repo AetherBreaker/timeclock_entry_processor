@@ -3,7 +3,6 @@ from pathlib import Path
 
 from pandas import read_csv
 from pandas.core.frame import DataFrame
-from utils import get_active_progress
 
 logger = getLogger(__name__)
 
@@ -23,19 +22,16 @@ type EmployeeName = str
 
 def get_employee_group_lists() -> dict[EmployeeGroup, tuple[EmployeeName]]:
   employee_group_lists = {}
-  with get_active_progress() as progress:
-    files = list(EMPLOYEE_GROUPS_INPUT_FOLDER.iterdir())
-    with progress.add_task("Reading employee group lists...", total=len(files)) as task_id:
-      for csv_file in files:
-        group_name = csv_file.stem
-        employee_names = read_csv(csv_file, header=0, usecols=[0], dtype=str)
-        employee_names = employee_names.iloc[:, 0].tolist()
-        employee_group_lists[group_name] = tuple(employee_names)
-        progress.update(task_id, advance=1)
+  files = list(EMPLOYEE_GROUPS_INPUT_FOLDER.iterdir())
+  for csv_file in files:
+    group_name = csv_file.stem
+    employee_names = read_csv(csv_file, header=0, usecols=[0], dtype=str)
+    employee_names = employee_names.iloc[:, 0].tolist()
+    employee_group_lists[group_name] = tuple(employee_names)
   return employee_group_lists
 
 
-def get_employee_info() -> DataFrame:
+def get_employee_info() -> DataFrame:  # sourcery skip: extract-method
   if EMPLOYEE_GROUPS_INPUT_FOLDER.exists():
     employee_df = read_csv(
       MANUAL_EMPLOYEE_LIST_CSV,
