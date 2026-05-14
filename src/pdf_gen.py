@@ -66,8 +66,8 @@ class TimelinePDF(FPDF):
 
     # things that need to be precalced to be reused. Gets baked into the pickled instance
     self.GROUP_GROUPS: dict[str, GroupLabel] = {
-      "ADMIN": "Admin",
-      "Default": "Admin",
+      "ADMIN": "Office",
+      "Default": "Office",
       "District Manager": "District Manager",
       "Franchisee": "District Manager",
       "Manager": "Manager",
@@ -75,16 +75,16 @@ class TimelinePDF(FPDF):
       "Reporting Office": "Office",
     }
     self.GROUP_COLORS: GroupColors = {
-      "Admin": to_255(*(hsv_to_rgb(0.0, 0.0, 0.7))),  # Dark grey
+      "Office": to_255(*(hsv_to_rgb(0.0, 0.0, 0.7))),  # Dark grey
       "District Manager": to_255(*(hsv_to_rgb(0, 0.85, 0.65))),  # Red
-      "Manager": to_255(*(hsv_to_rgb(0.08, 0.85, 0.85))),  # Orange
-      "Office": to_255(*(hsv_to_rgb(0.15, 0.85, 0.85))),  # Yellow
+      "Manager": to_255(*(hsv_to_rgb(0.14, 0.85, 0.85))),
     }
     self.RESERVED_HUES: list[float] = [
       0.0,  # Red District Manager
-      0.08,  # Orange Manager
-      0.15,  # Yellow Office
-      0.29,  # pre reserving green space because green is massive and too similar
+      0.14,
+      # 0.08,  # Orange Manager
+      # 0.15,  # Yellow Office
+      # 0.29,  # pre reserving green space because green is massive and too similar
     ]
 
   def configure(self, unique_employees: list[str], employee_id_to_group: dict[str, str], store_number: int) -> None:
@@ -133,7 +133,8 @@ class TimelinePDF(FPDF):
     # Generate colors for numeric employee indices, avoiding reserved hues
     if numeric_indices:
       num_colors = len(numeric_indices)
-      hue_threshold = 0.09  # Minimum distance from reserved hues
+      # num_colors = 7
+      hue_threshold = 0.12  # Minimum distance from reserved hues
 
       # Try to generate hues evenly distributed while avoiding reserved hues
       employee_hues: list[float] = []
