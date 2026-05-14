@@ -187,7 +187,7 @@ class TimelinePDF(FPDF):
     # Margins and layout (tightened for more timeline space)
     self.margin_left = 35  # Space for day labels
     self.margin_right = 5
-    self.margin_top = 25  # Space for time axis and header
+    self.margin_top = 20  # Space for time axis and header
     self.margin_bottom = 35  # Space for legend
 
     # Timeline area
