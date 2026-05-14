@@ -282,29 +282,12 @@ class TimelinePDF(FPDF):
       self.set_xy(x - 5, axis_y - 8)
       self.cell(10, 4, label, align="C")
 
-    # Add employee name label if block is wide enough
+    # Minimum block dimensions to show any label
     min_width_for_label = 15  # Minimum width in mm to show label
     min_height_for_label = 3  # Minimum height in mm to show label
 
-    # Pre-compute display name candidates for each unique employee to avoid
-    # re-parsing strings and re-splitting in the innermost block-drawing loop.
-    # Format: (candidates list, must_show_last) where must_show_last=True means
-    # the final candidate is always shown even when it overflows the block width.
-    _emp_label_data: dict[str, tuple[list[str], bool]] = {}
-    for emp in week_df["Employee Name"].unique():
-      parts = emp.split(" - ", 1)
-      if len(parts) > 1:
-        words = parts[1].split()
-        if len(words) >= 2:
-          fn, ln = words[0].title(), words[-1].title()
-          _emp_label_data[emp] = ([f"{fn} {ln}", f"{fn} {ln[0]}.", f"{fn[0]}.{ln[0]}."], False)
-        elif len(words) == 1:
-          word = words[0].title()
-          _emp_label_data[emp] = ([word, word[:6]], True)
-
     # Cache for get_string_width results: (text, font_size_pt) -> width in mm.
-    # Since there are only ~N_employees * 3 unique label strings and 2 font sizes,
-    # this eliminates redundant fpdf char-width lookups across days and blocks.
+    # Eliminates redundant fpdf char-width lookups across days and blocks.
     _width_cache: dict[tuple[str, int], float] = {}
 
     # Pre-group week_df by date once (O(n)) to avoid repeating O(n) boolean
@@ -349,37 +332,15 @@ class TimelinePDF(FPDF):
           self.set_draw_color(0, 0, 0)
           self.rect(block_x_start, block_y, block_width, employee_block_height, "FD")
 
-          if block_width >= min_width_for_label and employee_block_height >= min_height_for_label:
-            label_data = _emp_label_data.get(employee)
-            if label_data is not None:
-              candidates, must_show_last = label_data
-              font_size = 8 if employee_block_height < 5 else 9
-              display_name = ""
-              text_width = 0.0
-              for c_idx, candidate in enumerate(candidates):
-                key = (candidate, font_size)
-                if key not in _width_cache:
-                  self.set_font("RobotoMono", "B", font_size)
-                  _width_cache[key] = self.get_string_width(candidate)
-                w = _width_cache[key]
-                is_last = c_idx == len(candidates) - 1
-                if w <= block_width - 2 or (is_last and must_show_last):
-                  display_name = candidate
-                  text_width = w
-                  break
-
-              if display_name:
-                self.set_font("RobotoMono", "B", font_size)
-                self.set_text_color(255, 255, 255)
-                text_x = block_x_start + block_width / 2
-                text_y = block_y + employee_block_height / 2
-                self.set_xy(text_x - text_width / 2, text_y - 2)
-                self.cell(text_width, 4, display_name, align="L")
-                self.set_text_color(0, 0, 0)
-
-          # Draw clock-in/clock-out time labels at left and right ends of block
+          # Draw time labels at block ends and employee name in center
           if employee_block_height >= min_height_for_label:
             time_font_size = 8
+            name_font_size = 8 if employee_block_height < 5 else 9
+            time_pad = 1.0
+            name_gap = 1.0
+            text_y = block_y + employee_block_height / 2
+
+            # Build and measure time labels
             h_in = in_time.hour % 12 or 12
             h_out = out_time.hour % 12 or 12
             in_label = f"{h_in}:{in_time.minute:02d}{'AM' if in_time.hour < 12 else 'PM'}"
@@ -397,19 +358,82 @@ class TimelinePDF(FPDF):
               _width_cache[key_out] = self.get_string_width(out_label)
             out_label_w = _width_cache[key_out]
 
-            time_pad = 1.0
-            text_y = block_y + employee_block_height / 2
+            in_shown = in_label_w + time_pad * 2 <= block_width
+            out_shown = out_label_w + time_pad * 2 <= block_width
 
-            self.set_font("RobotoMono", "", time_font_size)
-            self.set_text_color(255, 255, 255)
+            # Determine available horizontal space for the centered name label.
+            # The name center is at block_width/2; it must not cross into either
+            # time label region, so compute the usable half-width on each side.
+            name_left_bound = (time_pad + in_label_w + name_gap) if in_shown else time_pad
+            name_right_bound = (block_width - time_pad - out_label_w - 2 - name_gap) if out_shown else (block_width - time_pad)
+            center = block_width / 2
+            available_name_width = 2.0 * min(center - name_left_bound, name_right_bound - center)
 
-            if in_label_w + time_pad * 2 <= block_width:
-              self.set_xy(block_x_start + time_pad, text_y - 2)
+            # Pick the best-fitting name candidate for this specific block width.
+            # Candidate ordering:
+            #   1. Firstname Lastname          (full)
+            #   2. Firstname L.               (last name to initial)
+            #   3. F. Lastname                (first to initial; only when fn is longer than ln)
+            #   4. F.L.                       (both initials)
+            display_name = ""
+            name_text_width = 0.0
+            if block_width >= min_width_for_label and available_name_width > 0:
+              parts = employee.split(" - ", 1)
+              if len(parts) > 1:
+                words = parts[1].split()
+                if len(words) >= 2:
+                  fn, ln = words[0].title(), words[-1].title()
+                  candidates: list[str] = [f"{fn} {ln}", f"{fn} {ln[0]}."]
+                  if len(fn) > len(ln):
+                    candidates.append(f"{fn[0]}. {ln}")
+                  candidates.append(f"{fn[0]}.{ln[0]}.")
+                elif len(words) == 1:
+                  word = words[0].title()
+                  candidates = [word, word[:6]]
+                else:
+                  candidates = []
+
+                for candidate in candidates:
+                  key = (candidate, name_font_size)
+                  if key not in _width_cache:
+                    self.set_font("RobotoMono", "B", name_font_size)
+                    _width_cache[key] = self.get_string_width(candidate)
+                  if _width_cache[key] <= available_name_width:
+                    display_name = candidate
+                    name_text_width = _width_cache[key]
+                    break
+
+            # Draw time and name labels, each preceded by a black background rect
+            lbl_bg_pad = 0  # extra padding around each label background rect
+            lbl_h = 4 + lbl_bg_pad * 2
+            lbl_bg_y = text_y - 2 - lbl_bg_pad
+
+            if in_shown:
+              in_lbl_x = block_x_start + time_pad
+              self.set_fill_color(0, 0, 0)
+              self.rect(in_lbl_x - lbl_bg_pad, lbl_bg_y, in_label_w + lbl_bg_pad * 2 + 2, lbl_h, "F")
+              self.set_font("RobotoMono", "", time_font_size)
+              self.set_text_color(255, 255, 255)
+              self.set_xy(in_lbl_x, text_y - 2)
               self.cell(in_label_w, 4, in_label, align="L")
 
-            if out_label_w + time_pad * 2 <= block_width:
-              self.set_xy(block_x_start + block_width - out_label_w - time_pad - 2, text_y - 2)
+            if out_shown:
+              out_lbl_x = block_x_start + block_width - out_label_w - time_pad - 2
+              self.set_fill_color(0, 0, 0)
+              self.rect(out_lbl_x - lbl_bg_pad, lbl_bg_y, out_label_w + lbl_bg_pad * 2 + 2, lbl_h, "F")
+              self.set_font("RobotoMono", "", time_font_size)
+              self.set_text_color(255, 255, 255)
+              self.set_xy(out_lbl_x, text_y - 2)
               self.cell(out_label_w, 4, out_label, align="L")
+
+            if display_name:
+              name_lbl_x = block_x_start + block_width / 2 - name_text_width / 2
+              self.set_fill_color(0, 0, 0)
+              self.rect(name_lbl_x - lbl_bg_pad, lbl_bg_y, name_text_width + lbl_bg_pad * 2 + 2, lbl_h, "F")
+              self.set_font("RobotoMono", "B", name_font_size)
+              self.set_text_color(255, 255, 255)
+              self.set_xy(name_lbl_x, text_y - 2)
+              self.cell(name_text_width, 4, display_name, align="L")
 
             self.set_text_color(0, 0, 0)
 
@@ -431,7 +455,7 @@ class TimelinePDF(FPDF):
     self.set_xy(x, y)
     self.cell(50, 5, "Employees:", align="L")
 
-    self.set_font("RobotoMono", "", 7)
+    self.set_font("RobotoMono", "B", 8)
     legend_y = y + 5  # Reduced from 6 to save space
 
     sorted_employees = sorted(filter(lambda e: employee_hours.get(e, 0.0) > 0, self.employee_colors.keys()))
@@ -512,7 +536,7 @@ class TimelinePDF(FPDF):
       self.cell(group_legend_width, 5, "Groups:", align="L")
 
       # Draw group color swatches
-      self.set_font("RobotoMono", "", 7)
+      self.set_font("RobotoMono", "B", 8)
 
       for i, group_name in enumerate(sorted_groups):
         color = self.GROUP_COLORS[group_name]
@@ -617,7 +641,7 @@ if __name__ == "__main__":
       errors="coerce",
     ).fillna(0.0)
     df["Date"] = df["In Time"].dt.date
-    df["Store Number"] = df["Store"].astype(str).str.split(" - ").str[0].str.strip().str.zfill(3)
+    df["Store Number"] = df["Store"].astype(str).str.split(" - ").str[0].str.strip().astype(int)
     df["Store Number"] = df["Store Number"].where(df["Store"].notna() & df["Store"].astype(str).str.contains(" - "), "Unknown")
     return df
 
@@ -646,8 +670,8 @@ if __name__ == "__main__":
   employee_id_to_group: dict[str, str] = dict(zip(employee_info["id"], employee_info["group"]))
 
   # Pick the first store and first week
-  first_store_number, first_store_df = next(iter(combined_df.groupby("Store Number")))
-  first_week_key, first_week_df = next(iter(_group_by_weeks(first_store_df).items()))
+  first_store_number, first_store_df = next((storenum, df) for storenum, df in combined_df.groupby("Store Number") if storenum == 19)
+  first_week_key, first_week_df = list(iter(_group_by_weeks(first_store_df).items()))[0]
   week_start, week_end = first_week_key
 
   unique_employees = first_store_df["Employee Name"].unique().tolist()
