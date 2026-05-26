@@ -1,16 +1,24 @@
+if __name__ == "__main__":
+  from sft_ext.logging_ext.init_logging import init_logging
+
+  init_logging()
+# else:
+#   from rich import get_console
+
+#   RICH_CONSOLE = get_console()
+
 import pickle
 from colorsys import hsv_to_rgb
 from datetime import date, datetime, time
 from functools import partial
 from itertools import chain
 from logging import getLogger
+from multiprocessing import Queue
 from pathlib import Path
 
-from employee_info import EmployeeName
 from fpdf import FPDF
 from pandas import DataFrame
 
-CWD = Path.cwd()
 logger = getLogger(__name__)
 
 # Worker-process-local cache for the PDF font template pickle.
@@ -22,6 +30,7 @@ _PDF_TEMPLATE_BYTES: bytes | None = None
 type EmployeeColors = dict[EmployeeName, tuple[int, int, int]]
 type GroupLabel = str
 type GroupColors = dict[GroupLabel, tuple[int, int, int]]
+type EmployeeName = str
 
 
 def to_255(r, g, b):
@@ -47,14 +56,22 @@ def _cw_constant(value):
 
 
 class TimelinePDF(FPDF):
-  def __init__(self):
+  def __init__(self, font_input_folder: Path):
     super().__init__(orientation="L", unit="mm", format="A4")  # Landscape orientation
     self.set_auto_page_break(False)
 
     # Add Roboto Mono fonts (regular and bold only; italic is never used in rendering)
-    self.add_font("RobotoMono", "", str(CWD / "RobotoMono-Regular.ttf"))
-    self.add_font("RobotoMono", "B", str(CWD / "RobotoMono-Bold.ttf"))
+    for font_file in font_input_folder.glob("*.ttf"):
+      if "robotomono" not in font_file.stem.lower():
+        raise ValueError(f"Expected Roboto Mono font files in {font_input_folder}, but found: {font_file.name}")
 
+      if "regular" in font_file.stem.lower():
+        tp = ""
+      elif "bold" in font_file.stem.lower():
+        tp = "B"
+      else:
+        raise ValueError(f"Unexpected font file in {font_input_folder}: {font_file.name}")
+      self.add_font("RobotoMono", tp, str(font_file))
     # Replace per-font lambdas with picklable equivalents so this instance
     # can be serialized and restored without re-reading font files.
     from collections import defaultdict
@@ -301,8 +318,7 @@ class TimelinePDF(FPDF):
       # Group by employee and collect all their time blocks for this day.
       # groupby dict-comprehension avoids row-by-row Python iteration (iterrows overhead).
       employee_blocks: dict[str, list[tuple[datetime, datetime]]] = {
-        emp: list(zip(grp["In Time"], grp["Out Time Parsed"]))
-        for emp, grp in date_groups[day_date].groupby("Employee Name", sort=False)
+        emp: list(zip(grp["In Time"], grp["Out Time"])) for emp, grp in date_groups[day_date].groupby("Employee Name", sort=False)
       }
 
       # Draw blocks for each employee (stacked vertically if needed)
@@ -553,16 +569,17 @@ class TimelinePDF(FPDF):
         self.cell(group_legend_width - 4, 3, group_name, align="L")
 
 
-def init_pdf_worker(logging_queues, pickled_bytes: bytes) -> None:
+def init_pdf_worker(logging_queue: Queue, pickled_bytes: bytes) -> None:
   """ProcessPoolExecutor initializer: cache the PDF font template and configure logging.
 
   Called once per worker process so the font template is transmitted via IPC
   only N_workers times (not once per task), eliminating repeated copies of the
   ~310 KB font blob across all store-week tasks.
   """
-  from logging_config import configure_multiprocessing_logging
+  from sft_ext.logging_ext.init_logging import init_logging_worker
 
-  configure_multiprocessing_logging(logging_queues)
+  init_logging_worker(logging_queue)
+
   global _PDF_TEMPLATE_BYTES
   _PDF_TEMPLATE_BYTES = pickled_bytes
 
@@ -592,96 +609,96 @@ def start_mp_pdf_gen(
   )
 
 
-if __name__ == "__main__":
-  import pickle
-  from datetime import time, timedelta
-  from logging import getLogger
-  from pathlib import Path
-  from sys import platform
+# if __name__ == "__main__":
+#   import pickle
+#   from datetime import time, timedelta
+#   from logging import getLogger
+#   from pathlib import Path
+#   from sys import platform
 
-  from employee_info import get_employee_info
-  from logging_config import configure_logging
-  from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
-  from pdf_gen import TimelinePDF
-  from rich.console import Console
+#   from employee_info import get_employee_info
+#   from logging_config import configure_logging
+#   from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
+#   from pdf_gen import TimelinePDF
+#   from rich.console import Console
 
-  CWD = Path.cwd()
+#   CWD = Path.cwd()
 
-  # Constants
-  INPUT_FOLDER = CWD / "input"
-  INPUT_FOLDER.mkdir(exist_ok=True)  # Create input folder if it doesn't exist
-  OUTPUT_FOLDER = CWD / "output"
-  OUTPUT_FOLDER.mkdir(exist_ok=True)  # Create output folder if it doesn't exist
+#   # Constants
+#   INPUT_FOLDER = CWD / "input"
+#   INPUT_FOLDER.mkdir(exist_ok=True)  # Create input folder if it doesn't exist
+#   OUTPUT_FOLDER = CWD / "output"
+#   OUTPUT_FOLDER.mkdir(exist_ok=True)  # Create output folder if it doesn't exist
 
-  DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
-  # Load employee group information
-  EMPLOYEE_INFO = get_employee_info()
+#   DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
+#   # Load employee group information
+#   EMPLOYEE_INFO = get_employee_info()
 
-  # Create a dictionary mapping employee ID to group for O(1) lookups (instead of DataFrame filtering)
-  EMPLOYEE_ID_TO_GROUP: dict[str, str] = dict(zip(EMPLOYEE_INFO["id"], EMPLOYEE_INFO["group"]))
-  rich_console = Console(
-    width=None if platform == "win32" else 160,
-    log_time=platform == "win32",
-  )
-  queues = configure_logging(rich_console, mp=True)
-  INPUT_FOLDER.mkdir(exist_ok=True)
+#   # Create a dictionary mapping employee ID to group for O(1) lookups (instead of DataFrame filtering)
+#   EMPLOYEE_ID_TO_GROUP: dict[str, str] = dict(zip(EMPLOYEE_INFO["id"], EMPLOYEE_INFO["group"]))
+#   rich_console = Console(
+#     width=None if platform == "win32" else 160,
+#     log_time=platform == "win32",
+#   )
+#   queues = configure_logging(rich_console, mp=True)
+#   INPUT_FOLDER.mkdir(exist_ok=True)
 
-  DEFAULT_OUT_TIME = time(21, 0)
+#   DEFAULT_OUT_TIME = time(21, 0)
 
-  def _load(csv_path: Path) -> DataFrame:
-    df = read_csv(csv_path)
-    df = df[df["Employee Name"].notna() & (df["Employee Name"] != "")]
-    df["In Time"] = to_datetime(df["In Time"], format="%m/%d/%Y %I:%M %p")
-    df["Out Time"] = df["Out Time"].replace("N/A", None)
-    df["Out Time Parsed"] = to_datetime(df["Out Time"], format="%m/%d/%Y %I:%M %p", errors="coerce")
-    mask = df["Out Time Parsed"].isna()
-    df.loc[mask, "Out Time Parsed"] = df.loc[mask, "In Time"].dt.floor("D") + timedelta(hours=DEFAULT_OUT_TIME.hour)
-    df["Hours Worked"] = to_numeric(
-      df["Time Worked"].fillna("0 Hours").astype(str).str.replace(" Hours", "").str.strip(),
-      errors="coerce",
-    ).fillna(0.0)
-    df["Date"] = df["In Time"].dt.date
-    df["Store Number"] = df["Store"].astype(str).str.split(" - ").str[0].str.strip().astype(int)
-    df["Store Number"] = df["Store Number"].where(df["Store"].notna() & df["Store"].astype(str).str.contains(" - "), "Unknown")
-    return df
+#   def _load(csv_path: Path) -> DataFrame:
+#     df = read_csv(csv_path)
+#     df = df[df["Employee Name"].notna() & (df["Employee Name"] != "")]
+#     df["In Time"] = to_datetime(df["In Time"], format="%m/%d/%Y %I:%M %p")
+#     df["Out Time"] = df["Out Time"].replace("N/A", None)
+#     df["Out Time"] = to_datetime(df["Out Time"], format="%m/%d/%Y %I:%M %p", errors="coerce")
+#     mask = df["Out Time"].isna()
+#     df.loc[mask, "Out Time"] = df.loc[mask, "In Time"].dt.floor("D") + timedelta(hours=DEFAULT_OUT_TIME.hour)
+#     df["Hours Worked"] = to_numeric(
+#       df["Time Worked"].fillna("0 Hours").astype(str).str.replace(" Hours", "").str.strip(),
+#       errors="coerce",
+#     ).fillna(0.0)
+#     df["Date"] = df["In Time"].dt.date
+#     df["Store Number"] = df["Store"].astype(str).str.split(" - ").str[0].str.strip().astype(int)
+#     df["Store Number"] = df["Store Number"].where(df["Store"].notna() & df["Store"].astype(str).str.contains(" - "), "Unknown")
+#     return df
 
-  def _group_by_weeks(df: DataFrame) -> dict[tuple, DataFrame]:
-    weeks: dict = {}
-    for dt in df["Date"].unique():
-      week_start = dt - timedelta(days=dt.weekday())
-      week_end = week_start + timedelta(days=6)
-      weeks.setdefault((week_start, week_end), []).append(dt)
-    return {k: df[df["Date"].isin(v)] for k, v in sorted(weeks.items())}
+#   def _group_by_weeks(df: DataFrame) -> dict[tuple, DataFrame]:
+#     weeks: dict = {}
+#     for dt in df["Date"].unique():
+#       week_start = dt - timedelta(days=dt.weekday())
+#       week_end = week_start + timedelta(days=6)
+#       weeks.setdefault((week_start, week_end), []).append(dt)
+#     return {k: df[df["Date"].isin(v)] for k, v in sorted(weeks.items())}
 
-  def _time_range(df: DataFrame) -> tuple[time, time]:
-    all_times = concat([df["In Time"].dt.time, df["Out Time Parsed"].dt.time])
-    min_h = all_times.min().hour
-    max_h = all_times.max().hour + (0 if all_times.max().minute == 0 else 1)
-    return time(min_h, 0), time(min(max_h, 23), 0 if max_h < 24 else 59)
+#   def _time_range(df: DataFrame) -> tuple[time, time]:
+#     all_times = concat([df["In Time"].dt.time, df["Out Time"].dt.time])
+#     min_h = all_times.min().hour
+#     max_h = all_times.max().hour + (0 if all_times.max().minute == 0 else 1)
+#     return time(min_h, 0), time(min(max_h, 23), 0 if max_h < 24 else 59)
 
-  input_folder = CWD / "input"
-  csv_files = list(input_folder.glob("*.csv"))
-  if not csv_files:
-    raise FileNotFoundError(f"No CSV files found in {input_folder}")
+#   input_folder = CWD / "input"
+#   csv_files = list(input_folder.glob("*.csv"))
+#   if not csv_files:
+#     raise FileNotFoundError(f"No CSV files found in {input_folder}")
 
-  combined_df = concat([_load(f) for f in csv_files], ignore_index=True)
+#   combined_df = concat([_load(f) for f in csv_files], ignore_index=True)
 
-  employee_info = get_employee_info()
-  employee_id_to_group: dict[str, str] = dict(zip(employee_info["id"], employee_info["group"]))
+#   employee_info = get_employee_info()
+#   employee_id_to_group: dict[str, str] = dict(zip(employee_info["id"], employee_info["group"]))
 
-  # Pick the first store and first week
-  first_store_number, first_store_df = next((storenum, df) for storenum, df in combined_df.groupby("Store Number") if storenum == 19)
-  first_week_key, first_week_df = list(iter(_group_by_weeks(first_store_df).items()))[0]
-  week_start, week_end = first_week_key
+#   # Pick the first store and first week
+#   first_store_number, first_store_df = next((storenum, df) for storenum, df in combined_df.groupby("Store Number") if storenum == 19)
+#   first_week_key, first_week_df = list(iter(_group_by_weeks(first_store_df).items()))[0]
+#   week_start, week_end = first_week_key
 
-  unique_employees = first_store_df["Employee Name"].unique().tolist()
-  min_time, max_time = _time_range(first_store_df)
+#   unique_employees = first_store_df["Employee Name"].unique().tolist()
+#   min_time, max_time = _time_range(first_store_df)
 
-  output_path = CWD / "output" / f"TEST_SFT{int(first_store_number):0>3}_{week_end.strftime('%Y-%m-%d')}.pdf"  # type: ignore
-  output_path.parent.mkdir(parents=True, exist_ok=True)
+#   output_path = CWD / "output" / f"TEST_SFT{int(first_store_number):0>3}_{week_end.strftime('%Y-%m-%d')}.pdf"  # type: ignore
+#   output_path.parent.mkdir(parents=True, exist_ok=True)
 
-  pdf = TimelinePDF()
-  pdf.configure(unique_employees, employee_id_to_group, int(first_store_number))  # type: ignore
-  pdf.render_week(week_start, week_end, first_week_df, min_time, max_time)
-  pdf.output(str(output_path))
-  logger.info(f"Test PDF saved to: {output_path}")
+#   pdf = TimelinePDF()
+#   pdf.configure(unique_employees, employee_id_to_group, int(first_store_number))  # type: ignore
+#   pdf.render_week(week_start, week_end, first_week_df, min_time, max_time)
+#   pdf.output(str(output_path))
+#   logger.info(f"Test PDF saved to: {output_path}")

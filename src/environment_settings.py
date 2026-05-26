@@ -1,30 +1,25 @@
-from __future__ import annotations
-
 import sys
 from logging import getLogger
+from os import environ
 from pathlib import Path
-from typing import Annotated
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import SettingsConfigDict
+from sft_ext.settings import BaseSettings
 
 logger = getLogger(__name__)
 
+environ.setdefault("PYDANTIC_ERRORS_INCLUDE_URL", "false")
 
-CWD = Path(__file__).parent if getattr(sys, "frozen", False) else Path.cwd()
+__CWD = Path(__file__).parent if getattr(sys, "frozen", False) else Path.cwd()
 
 
 class Settings(BaseSettings):
   model_config = (
     SettingsConfigDict(
-      env_file=CWD / "testing.env",
+      env_file=__CWD / "testing.env",
       env_file_encoding="utf-8",
       env_ignore_empty=True,
     )
     if __debug__
     else SettingsConfigDict()
-  )
-
-  persisted_dir_loc: Annotated[Path, Field(alias="PERSISTED_DIR_LOC")] = (
-    CWD / "persisted_data" if __debug__ else Path("/app/persisted_data")
   )
