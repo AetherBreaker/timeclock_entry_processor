@@ -26,11 +26,11 @@ from logging import getLogger
 from multiprocessing import Queue
 from pathlib import Path
 
-from employee_info import get_employee_info
-from environment_init_vars import CWD
 from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
-from pdf_gen import TimelinePDF, init_pdf_worker, start_mp_pdf_gen
 from sft_ext.rich_ext.progress import Progress
+from timeclock_entry_processor.employee_info import get_employee_info
+from timeclock_entry_processor.environment_init_vars import CWD
+from timeclock_entry_processor.pdf_gen import TimelinePDF, init_pdf_worker, start_mp_pdf_gen
 
 logger = getLogger(__name__)
 
@@ -41,7 +41,7 @@ type ProcessResult = list[tuple[list[str], dict[str, str], int, date, date, Data
 # Constants
 INPUT_FOLDER = CWD / "input"
 INPUT_FOLDER.mkdir(exist_ok=True)  # Create input folder if it doesn't exist
-OUTPUT_FOLDER = CWD / "output"
+OUTPUT_FOLDER = CWD / "timeclock_entry_processor_output"
 OUTPUT_FOLDER.mkdir(exist_ok=True)  # Create output folder if it doesn't exist
 FONT_INPUT_FOLDER = CWD / "font_input"
 FONT_INPUT_FOLDER.mkdir(exist_ok=True)  # Create font input folder if it doesn't exist
@@ -208,8 +208,14 @@ def main(mp_queue: Queue, input: Path) -> None:
   with Progress(console=RICH_CONSOLE, auto_refresh=False) as progress:
     with progress.add_task("[magenta]Processing weeks...") as data_task:
       with (
-        ProcessPoolExecutor(initializer=init_pdf_worker, initargs=(mp_queue, pickled_pdf_inst)) as procpool,  # type: ignore
-        ThreadPoolExecutor() as threadpool,
+        ProcessPoolExecutor(
+          # max_workers=1,
+          initializer=init_pdf_worker,
+          initargs=(mp_queue, pickled_pdf_inst),
+        ) as procpool,  # type: ignore
+        ThreadPoolExecutor(
+          # max_workers=1,
+        ) as threadpool,
       ):
         proc_futures = []
 

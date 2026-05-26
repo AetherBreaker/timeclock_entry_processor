@@ -2,7 +2,7 @@ import os
 from logging import getLogger
 from pathlib import Path
 
-from environment_settings import Settings
+from timeclock_entry_processor.environment_settings import Settings
 
 logger = getLogger(__name__)
 

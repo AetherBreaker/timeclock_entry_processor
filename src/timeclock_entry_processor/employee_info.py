@@ -9,25 +9,21 @@ if __name__ == "__main__":
 
 from logging import getLogger
 
-from environment_init_vars import CWD
-from pandas import read_csv
-from pandas.core.frame import DataFrame
+from pandas import DataFrame, read_csv
+from timeclock_entry_processor.environment_init_vars import CWD
 
 logger = getLogger(__name__)
 
+EMPLOYEE_INPUT_DIR = CWD / "employee_input"
+EMPLOYEE_INPUT_DIR.mkdir(exist_ok=True)  # Ensure the directory exists
 
-EMPLOYEE_GROUPS_INPUT_FOLDER = CWD / "employee_groups_input"
-EMPLOYEE_GROUPS_INPUT_FOLDER.mkdir(exist_ok=True)
-
-
-MANUAL_EMPLOYEE_LIST_CSV = max((CWD / "employee_list_input").iterdir(), key=lambda f: f.stat().st_mtime)
+MANUAL_EMPLOYEE_LIST_CSV = max(EMPLOYEE_INPUT_DIR.iterdir(), key=lambda f: f.stat().st_mtime)
 
 type EmployeeGroup = str
 type EmployeeName = str
 
 
 def get_employee_info() -> DataFrame:  # sourcery skip: extract-method
-  # if EMPLOYEE_GROUPS_INPUT_FOLDER.exists():
   employee_df = read_csv(
     MANUAL_EMPLOYEE_LIST_CSV,
     header=0,

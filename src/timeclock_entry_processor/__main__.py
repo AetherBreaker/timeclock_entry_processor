@@ -24,7 +24,7 @@ if __name__ == "__main__":
 from pathlib import Path
 
 import typer
-from start import main
+from timeclock_entry_processor.start import main
 
 
 def cli(csv_file: Path):
@@ -37,3 +37,4 @@ def cli(csv_file: Path):
 
 if __name__ == "__main__":
   typer.run(cli)
+  # cli(Path.cwd() / "input" / "Time-Clock-Entry-Report_2026-05-08_17-53-58.csv")
