@@ -1,5 +1,5 @@
 if __name__ == "__main__":
-  from sft_ext.logging_ext.init_logging import init_logging
+  from sft_ext.logging.init_logging import init_logging
 
   init_logging()
 # else:

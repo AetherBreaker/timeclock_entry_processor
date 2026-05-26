@@ -3,7 +3,7 @@ if __name__ == "__main__":
   from sys import platform
 
   from rich.console import Console
-  from sft_ext.logging_ext.init_logging import init_logging
+  from sft_ext.logging.init_logging import init_logging
 
   environ["TYPER_USE_RICH "] = "0"
 

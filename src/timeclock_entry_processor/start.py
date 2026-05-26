@@ -9,7 +9,7 @@ and data is organized by calendar week (Monday-Sunday).
 if __name__ == "__main__":
   from multiprocessing import Queue
 
-  from sft_ext.logging_ext.init_logging import init_logging
+  from sft_ext.logging.init_logging import init_logging
 
   mp_queue = Queue()
 
