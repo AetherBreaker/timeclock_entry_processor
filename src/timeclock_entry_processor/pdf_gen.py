@@ -576,7 +576,7 @@ def init_pdf_worker(logging_queue: Queue, pickled_bytes: bytes) -> None:
   only N_workers times (not once per task), eliminating repeated copies of the
   ~310 KB font blob across all store-week tasks.
   """
-  from sft_ext.logging_ext.init_logging import init_logging_worker
+  from sft_ext.logging.init_logging import init_logging_worker
 
   init_logging_worker(logging_queue)
 

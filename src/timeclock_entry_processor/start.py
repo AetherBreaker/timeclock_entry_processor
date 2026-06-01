@@ -27,7 +27,7 @@ from multiprocessing import Queue
 from pathlib import Path
 
 from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
-from sft_ext.rich_ext.progress import Progress
+from sft_ext.rich.progress import Progress
 from timeclock_entry_processor.employee_info import get_employee_info
 from timeclock_entry_processor.environment_init_vars import CWD
 from timeclock_entry_processor.pdf_gen import TimelinePDF, init_pdf_worker, start_mp_pdf_gen
