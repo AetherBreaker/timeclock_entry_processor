@@ -9,15 +9,19 @@ if __name__ == "__main__":
 
 import pickle
 from colorsys import hsv_to_rgb
-from datetime import date, datetime, time
 from functools import partial
 from itertools import chain
 from logging import getLogger
-from multiprocessing import Queue
-from pathlib import Path
 
 from fpdf import FPDF
-from pandas import DataFrame
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+  from pandas import DataFrame
+  from datetime import date, datetime, time
+  from multiprocessing import Queue
+  from pathlib import Path
+  from collections import defaultdict
 
 logger = getLogger(__name__)
 
@@ -32,8 +36,12 @@ type GroupLabel = str
 type GroupColors = dict[GroupLabel, tuple[int, int, int]]
 type EmployeeName = str
 
+NOON_HOUR = 12  # Hour at which AM transitions to PM
+MIN_BLOCK_HEIGHT_FOR_FONT_SIZING = 5  # mm; below this threshold use the smaller font size
+MIN_WORDS_FOR_FULL_NAME = 2  # Minimum word count to attempt first/last name split
 
-def to_255(r, g, b):
+
+def to_255(r: float, g: float, b: float):
   return (int(r * 255), int(g * 255), int(b * 255))
 
 
@@ -50,7 +58,7 @@ def truncate_repeating_decimal(value: float) -> str:
   return f"{value:06.3f}"
 
 
-def _cw_constant(value):
+def _cw_constant(value):  # noqa: ANN001
   """Picklable replacement for the per-font lambda in TTFFont.cw.default_factory."""
   return value
 
@@ -74,7 +82,6 @@ class TimelinePDF(FPDF):
       self.add_font("RobotoMono", tp, str(font_file))
     # Replace per-font lambdas with picklable equivalents so this instance
     # can be serialized and restored without re-reading font files.
-    from collections import defaultdict
 
     for font in self.fonts.values():
       cw: defaultdict = font.cw  # type: ignore[assignment]  # annotated as dict but is defaultdict at runtime
@@ -109,7 +116,7 @@ class TimelinePDF(FPDF):
     self.employee_colors = self.generate_employee_colors(unique_employees, employee_id_to_group)
     self.store_number = store_number
 
-  def generate_employee_colors(self, employees: list[str], employee_id_to_group: dict[str, str]) -> EmployeeColors:
+  def generate_employee_colors(self, employees: list[str], employee_id_to_group: dict[str, str]) -> EmployeeColors:  # noqa: C901, PLR0912
     # sourcery skip: extract-method, move-assign, use-named-expression
     """Generate distinct colors for each employee using HSV color space.
     Group colors are hard-coded for consistency. Employee colors are generated
@@ -193,7 +200,7 @@ class TimelinePDF(FPDF):
 
     return colors
 
-  def render_week(self, week_start: date, week_end: date, week_df: DataFrame, min_time: time, max_time: time):
+  def render_week(self, week_start: date, week_end: date, week_df: DataFrame, min_time: time, max_time: time):  # noqa: C901, PLR0912, PLR0915
     """Render a single week's timeline with horizontal time axis."""
     self.add_page()
 
@@ -294,7 +301,7 @@ class TimelinePDF(FPDF):
       hour_12 = hour % 12
       if hour_12 == 0:
         hour_12 = 12
-      am_pm = "AM" if hour < 12 else "PM"
+      am_pm = "AM" if hour < NOON_HOUR else "PM"
       label = f"{hour_12}{am_pm}"
       self.set_xy(x - 5, axis_y - 8)
       self.cell(10, 4, label, align="C")
@@ -309,7 +316,7 @@ class TimelinePDF(FPDF):
 
     # Pre-group week_df by date once (O(n)) to avoid repeating O(n) boolean
     # filtering inside the day loop (previously O(n * num_days) total).
-    date_groups: dict = {d: grp for d, grp in week_df.groupby("Date", sort=False)}
+    date_groups: dict = dict(week_df.groupby("Date", sort=False))
 
     # Draw daily rows with employee blocks
     for i, day_date in enumerate(dates_in_week):
@@ -318,7 +325,8 @@ class TimelinePDF(FPDF):
       # Group by employee and collect all their time blocks for this day.
       # groupby dict-comprehension avoids row-by-row Python iteration (iterrows overhead).
       employee_blocks: dict[str, list[tuple[datetime, datetime]]] = {
-        emp: list(zip(grp["In Time"], grp["Out Time"])) for emp, grp in date_groups[day_date].groupby("Employee Name", sort=False)
+        emp: list(zip(grp["In Time"], grp["Out Time"], strict=False))
+        for emp, grp in date_groups[day_date].groupby("Employee Name", sort=False)
       }
 
       # Draw blocks for each employee (stacked vertically if needed)
@@ -351,7 +359,7 @@ class TimelinePDF(FPDF):
           # Draw time labels at block ends and employee name in center
           if employee_block_height >= min_height_for_label:
             time_font_size = 8
-            name_font_size = 8 if employee_block_height < 5 else 9
+            name_font_size = 8 if employee_block_height < MIN_BLOCK_HEIGHT_FOR_FONT_SIZING else 9
             time_pad = 1.0
             name_gap = 1.0
             text_y = block_y + employee_block_height / 2
@@ -359,8 +367,8 @@ class TimelinePDF(FPDF):
             # Build and measure time labels
             h_in = in_time.hour % 12 or 12
             h_out = out_time.hour % 12 or 12
-            in_label = f"{h_in}:{in_time.minute:02d}{'AM' if in_time.hour < 12 else 'PM'}"
-            out_label = f"{h_out}:{out_time.minute:02d}{'AM' if out_time.hour < 12 else 'PM'}"
+            in_label = f"{h_in}:{in_time.minute:02d}{'AM' if in_time.hour < NOON_HOUR else 'PM'}"
+            out_label = f"{h_out}:{out_time.minute:02d}{'AM' if out_time.hour < NOON_HOUR else 'PM'}"
 
             key_in = (in_label, time_font_size)
             if key_in not in _width_cache:
@@ -397,7 +405,7 @@ class TimelinePDF(FPDF):
               parts = employee.split(" - ", 1)
               if len(parts) > 1:
                 words = parts[1].split()
-                if len(words) >= 2:
+                if len(words) >= MIN_WORDS_FOR_FULL_NAME:
                   fn, ln = words[0].title(), words[-1].title()
                   candidates: list[str] = [f"{fn} {ln}", f"{fn} {ln[0]}."]
                   if len(fn) > len(ln):
@@ -461,7 +469,7 @@ class TimelinePDF(FPDF):
     # Draw legend at bottom with hours
     self.draw_legend(self.margin_left, page_height - self.margin_bottom + 5, employee_hours)
 
-  def draw_legend(self, x: float, y: float, employee_hours: dict[str, float] = None):
+  def draw_legend(self, x: float, y: float, employee_hours: dict[str, float] | None = None):  # noqa: PLR0915
     # sourcery skip: extract-duplicate-method
     """Draw employee color legend with total hours and group color legend."""
     if employee_hours is None:

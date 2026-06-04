@@ -16,7 +16,10 @@
                 "PYTHONPATH": "${workspaceFolder}/src",
                 "PYTHONPYCACHEPREFIX": "${workspaceFolder}/PYCACHE",
                 "PYTHONUNBUFFERED": "1"
-            }
+            },
+            "args": [
+                "${workspaceFolder}/input/Time-Clock-Entry-Report_2026-05-14_19-31-12.csv"
+            ]
         },
         {
             "name": "Current File",

@@ -21,7 +21,7 @@ if __name__ == "__main__":
   init_logging(mp_queue)
 
 
-from pathlib import Path
+from pathlib import Path  # noqa: TC003
 
 import typer
 from timeclock_entry_processor.start import main

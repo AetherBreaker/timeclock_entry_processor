@@ -47,10 +47,11 @@ FONT_INPUT_FOLDER = CWD / "font_input"
 FONT_INPUT_FOLDER.mkdir(exist_ok=True)  # Create font input folder if it doesn't exist
 
 DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
+HOURS_PER_DAY = 24
 # Load employee group information
 EMPLOYEE_INFO = get_employee_info()
 # Create a dictionary mapping employee ID to group for O(1) lookups (instead of DataFrame filtering)
-EMPLOYEE_ID_TO_GROUP: dict[str, str] = dict(zip(EMPLOYEE_INFO["id"], EMPLOYEE_INFO["group"]))
+EMPLOYEE_ID_TO_GROUP: dict[str, str] = dict(zip(EMPLOYEE_INFO["id"], EMPLOYEE_INFO["group"], strict=False))
 
 EXPECTED_HEADERS = [
   "Store",
@@ -154,7 +155,7 @@ def calculate_time_range(df: DataFrame) -> tuple[time, time]:
   min_hour = min_time.hour
   max_hour = max_time.hour if max_time.minute == 0 else max_time.hour + 1
 
-  return time(min_hour, 0), time(min(max_hour, 23), 0 if max_hour < 24 else 59)
+  return time(min_hour, 0), time(min(max_hour, 23), 0 if max_hour < HOURS_PER_DAY else 59)
 
 
 def process_store_data(
@@ -194,8 +195,8 @@ def process_store_data(
   return week_args
 
 
-def main(mp_queue: Queue, input: Path) -> None:
-  df = load_and_parse_data(input)
+def main(mp_queue: Queue, input_path: Path) -> None:
+  df = load_and_parse_data(input_path)
   logger.info(f"Total entries loaded: {len(df)}\nOverall date range: {df['Date'].min()} to {df['Date'].max()}")
 
   # Initialize reusable TimelinePDF class pickle
@@ -212,7 +213,7 @@ def main(mp_queue: Queue, input: Path) -> None:
           # max_workers=1,
           initializer=init_pdf_worker,
           initargs=(mp_queue, pickled_pdf_inst),
-        ) as procpool,  # type: ignore
+        ) as procpool,
         ThreadPoolExecutor(
           # max_workers=1,
         ) as threadpool,
@@ -236,6 +237,6 @@ def main(mp_queue: Queue, input: Path) -> None:
         for future in as_completed(thread_futures):
           result = future.result()
           for week_args in result:
-            proc_future = procpool.submit(start_mp_pdf_gen, *week_args)  # type: ignore  # noqa: F821
+            proc_future = procpool.submit(start_mp_pdf_gen, *week_args)
             proc_future.add_done_callback(update_completed_progress)
             proc_futures.append(proc_future)

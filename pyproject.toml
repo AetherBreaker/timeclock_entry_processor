@@ -1,34 +1,42 @@
 [project]
-name = "timeclock_entry_processor"
-version = "1.0.2"
-description = "Add your description here"
-readme = "README.md"
-requires-python = ">=3.14"
-dependencies = [
+  dependencies = [
+    "aiologic>=0.16.0",
     "fpdf2>=2.8.7",
+    "pandas-stubs==3.*",
     "pandas[performance]>=3.0.2",
+    "pydantic-settings==2.*",
+    "pydantic==2.*",
+    "python-dateutil==2.9.*",
     "rich==15.*",
+    "sft-ext==0.5.2",
+    "typer>=0.26.0",
     "types-python-dateutil==2.9.*",
     "tzdata>=2025.3",
     "uvloop>=0.22.1 ; sys_platform == 'linux'",
     "winloop>=0.6.0 ; sys_platform == 'win32'",
-    "pydantic==2.*",
-    "pydantic-settings==2.*",
-    "python-dateutil==2.9.*",
-    "pandas-stubs==3.*",
-    "aiologic>=0.16.0",
-    "sft-ext==0.4.0",
-    "typer>=0.26.0",
-]
+  ]
+  description = "Add your description here"
+  name = "timeclock_entry_processor"
+  readme = "README.md"
+  requires-python = ">=3.14"
+  version = "1.0.2"
 
 [tool.uv]
-environments = [
-    "sys_platform == 'win32'",
+  environments = [
     "sys_platform == 'linux'",
-]
+    "sys_platform == 'win32'",
+  ]
 
-[tool.uv.sources]
-sft-ext = [
-    { path = "D:\\SFT Software Projects\\sft_ext", editable = true , marker = "sys_platform == 'win32'" },
-    { git = "https://github.com/AetherBreaker/sft_ext", marker = "sys_platform == 'linux'" , tag = "v0.4.0" },
-]
+  [tool.uv.sources]
+    sft-ext = [
+      { git = "https://github.com/AetherBreaker/sft_ext", marker = "sys_platform == 'linux'", tag = "v0.5.2" },
+      { path = "D:\\SFT Software Projects\\sft_ext", editable = true, marker = "sys_platform == 'win32'" },
+    ]
+
+
+[tool.ruff]
+  extend = "../pyproject.toml"
+
+  src = [
+    "./src",
+  ]
