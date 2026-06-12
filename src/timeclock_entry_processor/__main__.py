@@ -34,14 +34,16 @@ import typer
 
 # First party imports
 from timeclock_entry_processor import main
+from timeclock_entry_processor.environment_init_vars import CWD
 
 
-def cli(csv_file: Path):
+def cli(csv_file: Path, output_folder: Path = CWD / "timeclock_entry_processor_output"):
   if not csv_file.exists():
     RICH_CONSOLE.print(f"[red]Error: File '{csv_file}' does not exist.[/red]")
     raise typer.Exit(code=1)
+  output_folder.mkdir(parents=True, exist_ok=True)
 
-  main(mp_queue, csv_file)
+  main(mp_queue, csv_file, output_folder)
 
 
 if __name__ == "__main__":

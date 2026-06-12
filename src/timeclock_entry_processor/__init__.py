@@ -45,13 +45,9 @@ logger = getLogger(__name__)
 type ProcessResult = list[tuple[list[str], dict[str, str], int, date, date, DataFrame, time, time, Path]]
 
 
-# Constants
-INPUT_FOLDER = CWD / "input"
-INPUT_FOLDER.mkdir(exist_ok=True)  # Create input folder if it doesn't exist
-OUTPUT_FOLDER = CWD / "timeclock_entry_processor_output"
-OUTPUT_FOLDER.mkdir(exist_ok=True)  # Create output folder if it doesn't exist
 FONT_INPUT_FOLDER = CWD / "font_input"
-FONT_INPUT_FOLDER.mkdir(exist_ok=True)  # Create font input folder if it doesn't exist
+if not FONT_INPUT_FOLDER.exists():
+  raise FileNotFoundError(f"Font input folder not found at {FONT_INPUT_FOLDER}. Please create it and add necessary font files.")
 
 DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
 HOURS_PER_DAY = 24
@@ -202,7 +198,7 @@ def process_store_data(
   return week_args
 
 
-def main(mp_queue: Queue, input_path: Path) -> None:
+def main(mp_queue: Queue, input_path: Path, output_folder: Path) -> None:
   df = load_and_parse_data(input_path)
   logger.info(f"Total entries loaded: {len(df)}\nOverall date range: {df['Date'].min()} to {df['Date'].max()}")
 
@@ -237,7 +233,7 @@ def main(mp_queue: Queue, input_path: Path) -> None:
             int(store_number),  # type: ignore
             store_df,
             EMPLOYEE_ID_TO_GROUP,
-            OUTPUT_FOLDER,
+            output_folder,
           )
           for store_number, store_df in stores
         ]
