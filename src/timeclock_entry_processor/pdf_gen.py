@@ -1,4 +1,5 @@
 if __name__ == "__main__":
+  # First party imports
   from sft_ext.logging.init_logging import init_logging
 
   init_logging()
@@ -7,21 +8,26 @@ if __name__ == "__main__":
 
 #   RICH_CONSOLE = get_console()
 
+# Standard library imports
 import pickle
 from colorsys import hsv_to_rgb
 from functools import partial
 from itertools import chain
 from logging import getLogger
-
-from fpdf import FPDF
 from typing import TYPE_CHECKING
 
+# Third party imports
+from fpdf import FPDF
+
 if TYPE_CHECKING:
-  from pandas import DataFrame
+  # Standard library imports
+  from collections import defaultdict
   from datetime import date, datetime, time
   from multiprocessing import Queue
   from pathlib import Path
-  from collections import defaultdict
+
+  # Third party imports
+  from pandas import DataFrame
 
 logger = getLogger(__name__)
 
@@ -586,6 +592,7 @@ def init_pdf_worker(logging_queue: Queue, pickled_bytes: bytes) -> None:
   only N_workers times (not once per task), eliminating repeated copies of the
   ~310 KB font blob across all store-week tasks.
   """
+  # First party imports
   from sft_ext.logging.init_logging import init_logging_worker
 
   init_logging_worker(logging_queue)

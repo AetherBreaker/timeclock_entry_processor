@@ -7,18 +7,22 @@ and data is organized by calendar week (Monday-Sunday).
 """
 
 if __name__ == "__main__":
+  # Standard library imports
   from multiprocessing import Queue
 
+  # First party imports
   from sft_ext.logging.init_logging import init_logging
 
   mp_queue = Queue()
 
   init_logging(mp_queue)
 else:
+  # Third party imports
   from rich import get_console
 
   RICH_CONSOLE = get_console()
 
+# Standard library imports
 import pickle
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import date, time, timedelta
@@ -26,7 +30,10 @@ from logging import getLogger
 from multiprocessing import Queue
 from pathlib import Path
 
+# Third party imports
 from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
+
+# First party imports
 from sft_ext.rich.progress import Progress
 from timeclock_entry_processor.employee_info import get_employee_info
 from timeclock_entry_processor.environment_init_vars import CWD

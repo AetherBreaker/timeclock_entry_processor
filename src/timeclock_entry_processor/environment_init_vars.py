@@ -1,7 +1,9 @@
+# Standard library imports
 import os
 from logging import getLogger
 from pathlib import Path
 
+# First party imports
 from timeclock_entry_processor.environment_settings import Settings
 
 logger = getLogger(__name__)
