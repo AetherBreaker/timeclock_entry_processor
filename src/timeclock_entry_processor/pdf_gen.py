@@ -316,7 +316,9 @@ class TimelinePDF(FPDF):
 
     # Pre-group week_df by date once (O(n)) to avoid repeating O(n) boolean
     # filtering inside the day loop (previously O(n * num_days) total).
-    date_groups: dict = dict(week_df.groupby("Date", sort=False))
+    groupby = week_df.groupby("Date", sort=False)
+
+    date_groups: dict = dict(iter(groupby))
 
     # Draw daily rows with employee blocks
     for i, day_date in enumerate(dates_in_week):
