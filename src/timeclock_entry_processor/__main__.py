@@ -25,18 +25,15 @@ if __name__ == "__main__":
 
   init_logging(mp_queue)
 
+
 # Standard library imports
-from typing import TYPE_CHECKING
+from pathlib import Path  # noqa: TC003
 
 # Third party imports
 import typer
 
 # First party imports
 from timeclock_entry_processor import main
-
-if TYPE_CHECKING:
-  # Standard library imports
-  from pathlib import Path
 
 
 def cli(csv_file: Path):
