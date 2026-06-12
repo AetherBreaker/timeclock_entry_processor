@@ -19,7 +19,7 @@
   name = "timeclock_entry_processor"
   readme = "README.md"
   requires-python = ">=3.14"
-  version = "1.2.3"
+  version = "1.2.4"
 
 [tool.uv]
   environments = [
