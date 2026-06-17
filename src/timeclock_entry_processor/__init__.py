@@ -180,7 +180,11 @@ def process_store_data(
   week_args = []
 
   for (week_start, week_end), week_df in weeks.items():
-    pdf_path = store_output_dir / f"{week_end.strftime('%Y-%m-%d')}.pdf"
+    week_folder = store_output_dir / f"Week Ending {week_end.strftime('%Y-%m-%d')}"
+    week_folder.mkdir(exist_ok=True)
+    pdf_path = week_folder / f"Week Ending {week_end.strftime('%Y-%m-%d')}.pdf"
+
+    week_df.to_csv(week_folder / f"Week Ending {week_end.strftime('%Y-%m-%d')}.csv", index=False)
 
     week_args.append(
       (
@@ -208,6 +212,12 @@ def main(mp_queue: Queue, input_path: Path, output_folder: Path) -> None:
 
   # Group by store
   stores = df.groupby("Store Number")
+
+  # tmp = CWD / "stores"
+  # tmp.mkdir(exist_ok=True)
+
+  # for store_number, store_df in stores:
+  #   store_df.to_csv(tmp / f"store_{store_number}.csv", index=False)
 
   with Progress(console=RICH_CONSOLE, auto_refresh=False) as progress:
     with progress.add_task("[magenta]Processing weeks...") as data_task:
