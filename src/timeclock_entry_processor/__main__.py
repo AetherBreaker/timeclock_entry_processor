@@ -51,5 +51,7 @@ def cli(
 
 
 if __name__ == "__main__":
+  if __debug__:
+    cli(Path.cwd() / "input" / "Time-Clock-Entry-Report_2026-05-08_17-53-58.csv")
+  else:
     typer.run(cli)
-    # cli(Path.cwd() / "input" / "Time-Clock-Entry-Report_2026-05-08_17-53-58.csv")
