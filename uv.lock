@@ -477,7 +477,7 @@ wheels = [
 
 [[package]]
 name = "timeclock-entry-processor"
-version = "1.4.0"
+version = "1.4.1"
 source = { virtual = "." }
 dependencies = [
     { name = "aiologic", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
