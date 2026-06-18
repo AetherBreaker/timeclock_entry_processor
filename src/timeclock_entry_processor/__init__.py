@@ -30,6 +30,7 @@ from json import dump
 from logging import getLogger
 from multiprocessing import Queue
 from pathlib import Path
+from typing import TypedDict
 
 # Third party imports
 from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
@@ -162,12 +163,17 @@ def calculate_time_range(df: DataFrame) -> tuple[time, time]:
   return time(min_hour, 0), time(min(max_hour, 23), 0 if max_hour < HOURS_PER_DAY else 59)
 
 
+class ManifestEntry(TypedDict):
+  csv: Path
+  pdf: Path
+
+
 def process_store_data(
   store_number: int,
   store_df: DataFrame,
   employee_id_to_group: dict[str, str],
   output_base: Path,
-  manifest: dict[int, dict[str, Path]] | None = None,
+  manifest: dict[int, dict[str, ManifestEntry]] | None = None,
 ) -> ProcessResult:
 
   unique_employees: list[str] = store_df["Employee Name"].unique().tolist()
@@ -191,7 +197,7 @@ def process_store_data(
     week_df.to_csv(csv_path, index=False)
 
     if manifest is not None:
-      manifest.setdefault(store_number, {})[str(week_end)] = csv_path
+      manifest.setdefault(store_number, {})[str(week_end)] = ManifestEntry(csv=csv_path, pdf=pdf_path)
 
     week_args.append(
       (

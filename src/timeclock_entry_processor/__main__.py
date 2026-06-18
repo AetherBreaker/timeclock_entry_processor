@@ -52,5 +52,5 @@ def cli(
 
 
 if __name__ == "__main__":
-  typer.run(cli)
   # cli(Path.cwd() / "input" / "Time-Clock-Entry-Report_2026-05-08_17-53-58.csv", manifest_file=Path.cwd() / "manifest.json")
+  typer.run(cli)
