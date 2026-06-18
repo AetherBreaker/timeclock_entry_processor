@@ -26,6 +26,7 @@ else:
 import pickle
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import date, time, timedelta
+from json import dump
 from logging import getLogger
 from multiprocessing import Queue
 from pathlib import Path
@@ -166,6 +167,7 @@ def process_store_data(
   store_df: DataFrame,
   employee_id_to_group: dict[str, str],
   output_base: Path,
+  manifest: dict[int, dict[str, Path]] | None = None,
 ) -> ProcessResult:
 
   unique_employees: list[str] = store_df["Employee Name"].unique().tolist()
@@ -184,7 +186,12 @@ def process_store_data(
     week_folder.mkdir(exist_ok=True)
     pdf_path = week_folder / f"Week Ending {week_end.strftime('%Y-%m-%d')}.pdf"
 
-    week_df.to_csv(week_folder / f"Week Ending {week_end.strftime('%Y-%m-%d')}.csv", index=False)
+    csv_path = week_folder / f"Week Ending {week_end.strftime('%Y-%m-%d')}.csv"
+
+    week_df.to_csv(csv_path, index=False)
+
+    if manifest is not None:
+      manifest.setdefault(store_number, {})[str(week_end)] = csv_path
 
     week_args.append(
       (
@@ -202,7 +209,7 @@ def process_store_data(
   return week_args
 
 
-def main(mp_queue: Queue, input_path: Path, output_folder: Path) -> None:
+def main(mp_queue: Queue, input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
   df = load_and_parse_data(input_path)
   logger.info(f"Total entries loaded: {len(df)}\nOverall date range: {df['Date'].min()} to {df['Date'].max()}")
 
@@ -213,11 +220,10 @@ def main(mp_queue: Queue, input_path: Path, output_folder: Path) -> None:
   # Group by store
   stores = df.groupby("Store Number")
 
-  # tmp = CWD / "stores"
-  # tmp.mkdir(exist_ok=True)
+  manifest = None
 
-  # for store_number, store_df in stores:
-  #   store_df.to_csv(tmp / f"store_{store_number}.csv", index=False)
+  if manifest_file is not None:
+    manifest = {}
 
   with Progress(console=RICH_CONSOLE, auto_refresh=False) as progress:
     with progress.add_task("[magenta]Processing weeks...") as data_task:
@@ -244,6 +250,7 @@ def main(mp_queue: Queue, input_path: Path, output_folder: Path) -> None:
             store_df,
             EMPLOYEE_ID_TO_GROUP,
             output_folder,
+            manifest,
           )
           for store_number, store_df in stores
         ]
@@ -253,3 +260,8 @@ def main(mp_queue: Queue, input_path: Path, output_folder: Path) -> None:
             proc_future = procpool.submit(start_mp_pdf_gen, *week_args)
             proc_future.add_done_callback(update_completed_progress)
             proc_futures.append(proc_future)
+
+  if manifest:
+    assert manifest_file is not None
+    with manifest_file.open("w") as f:
+      dump(manifest, f, indent=2, default=str)

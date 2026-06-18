@@ -27,7 +27,7 @@ if __name__ == "__main__":
 
 
 # Standard library imports
-from pathlib import Path
+from pathlib import Path  # noqa: TC003
 from typing import Annotated
 
 # Third party imports
@@ -40,6 +40,7 @@ from timeclock_entry_processor.environment_init_vars import CWD
 
 def cli(
   csv_file: Path,
+  manifest_file: Annotated[Path | None, typer.Argument()] = None,
   output_folder: Annotated[Path, typer.Argument()] = CWD / "timeclock_entry_processor_output",
 ):
   if not csv_file.exists():
@@ -47,11 +48,9 @@ def cli(
     raise typer.Exit(code=1)
   output_folder.mkdir(parents=True, exist_ok=True)
 
-  main(mp_queue, csv_file, output_folder)
+  main(mp_queue, csv_file, output_folder, manifest_file)
 
 
 if __name__ == "__main__":
-  if __debug__:
-    cli(Path.cwd() / "input" / "Time-Clock-Entry-Report_2026-05-08_17-53-58.csv")
-  else:
-    typer.run(cli)
+  typer.run(cli)
+  # cli(Path.cwd() / "input" / "Time-Clock-Entry-Report_2026-05-08_17-53-58.csv", manifest_file=Path.cwd() / "manifest.json")
