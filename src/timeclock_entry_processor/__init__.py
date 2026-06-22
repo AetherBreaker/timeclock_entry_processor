@@ -30,7 +30,7 @@ from json import dump
 from logging import getLogger
 from multiprocessing import Queue
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 # Third party imports
 from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
@@ -40,6 +40,10 @@ from sft_ext.rich.progress import Progress
 from timeclock_entry_processor.employee_info import get_employee_info
 from timeclock_entry_processor.environment_init_vars import CWD
 from timeclock_entry_processor.pdf_gen import TimelinePDF, init_pdf_worker, start_mp_pdf_gen
+
+if TYPE_CHECKING:
+  # First party imports
+  from sft_ext.logging.logging_bases import FixedLogRecord
 
 logger = getLogger(__name__)
 
@@ -215,7 +219,7 @@ def process_store_data(
   return week_args
 
 
-def main(mp_queue: Queue, input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
+def main(mp_queue: Queue[FixedLogRecord], input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
   df = load_and_parse_data(input_path)
   logger.info(f"Total entries loaded: {len(df)}\nOverall date range: {df['Date'].min()} to {df['Date'].max()}")
 
@@ -245,7 +249,7 @@ def main(mp_queue: Queue, input_path: Path, output_folder: Path, manifest_file: 
       ):
         proc_futures = []
 
-        def update_completed_progress(future: Future) -> None:
+        def update_completed_progress(future: Future[None]) -> None:
           future.result()
           progress.update(data_task, advance=1, total=len(proc_futures), refresh=True)
 

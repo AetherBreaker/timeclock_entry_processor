@@ -29,6 +29,9 @@ if TYPE_CHECKING:
   # Third party imports
   from pandas import DataFrame
 
+  # First party imports
+  from sft_ext.logging.logging_bases import FixedLogRecord
+
 logger = getLogger(__name__)
 
 # Worker-process-local cache for the PDF font template pickle.
@@ -64,7 +67,7 @@ def truncate_repeating_decimal(value: float) -> str:
   return f"{value:06.3f}"
 
 
-def _cw_constant(value):  # noqa: ANN001
+def _cw_constant(value):  # pyright: ignore[reportMissingParameterType] # noqa: ANN001
   """Picklable replacement for the per-font lambda in TTFFont.cw.default_factory."""
   return value
 
@@ -244,7 +247,7 @@ class TimelinePDF(FPDF):
     axis_y = self.margin_top
 
     # Get dates in this week (sorted)
-    dates_in_week = sorted(week_df["Date"].unique())
+    dates_in_week: list[date] = sorted(week_df["Date"].unique())
     num_days = len(dates_in_week)
 
     # Calculate row height for each day
@@ -324,7 +327,7 @@ class TimelinePDF(FPDF):
     # filtering inside the day loop (previously O(n * num_days) total).
     groupby = week_df.groupby("Date", sort=False)
 
-    date_groups: dict = dict(iter(groupby))
+    date_groups: dict[date, DataFrame] = dict(iter(groupby))  # pyright: ignore[reportAssignmentType]
 
     # Draw daily rows with employee blocks
     for i, day_date in enumerate(dates_in_week):
@@ -335,7 +338,7 @@ class TimelinePDF(FPDF):
       employee_blocks: dict[str, list[tuple[datetime, datetime]]] = {
         emp: list(zip(grp["In Time"], grp["Out Time"], strict=False))
         for emp, grp in date_groups[day_date].groupby("Employee Name", sort=False)
-      }
+      }  # pyright: ignore[reportAssignmentType]
 
       # Draw blocks for each employee (stacked vertically if needed)
       employee_list = sorted(employee_blocks.keys())
@@ -585,7 +588,7 @@ class TimelinePDF(FPDF):
         self.cell(group_legend_width - 4, 3, group_name, align="L")
 
 
-def init_pdf_worker(logging_queue: Queue, pickled_bytes: bytes) -> None:
+def init_pdf_worker(logging_queue: Queue[FixedLogRecord], pickled_bytes: bytes) -> None:
   """ProcessPoolExecutor initializer: cache the PDF font template and configure logging.
 
   Called once per worker process so the font template is transmitted via IPC
@@ -711,11 +714,11 @@ def start_mp_pdf_gen(
 #   unique_employees = first_store_df["Employee Name"].unique().tolist()
 #   min_time, max_time = _time_range(first_store_df)
 
-#   output_path = CWD / "output" / f"TEST_SFT{int(first_store_number):0>3}_{week_end.strftime('%Y-%m-%d')}.pdf"  # type: ignore
+#   output_path = CWD / "output" / f"TEST_SFT{int(first_store_number):0>3}_{week_end.strftime('%Y-%m-%d')}.pdf"
 #   output_path.parent.mkdir(parents=True, exist_ok=True)
 
 #   pdf = TimelinePDF()
-#   pdf.configure(unique_employees, employee_id_to_group, int(first_store_number))  # type: ignore
+#   pdf.configure(unique_employees, employee_id_to_group, int(first_store_number))
 #   pdf.render_week(week_start, week_end, first_week_df, min_time, max_time)
 #   pdf.output(str(output_path))
 #   logger.info(f"Test PDF saved to: {output_path}")
