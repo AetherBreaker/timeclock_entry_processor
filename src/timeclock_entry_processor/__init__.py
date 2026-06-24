@@ -11,7 +11,7 @@ if __name__ == "__main__":
   from multiprocessing import Queue
 
   # First party imports
-  from sft_ext.logging.init_logging import init_logging
+  from sft_ext.logging.init import init_logging
 
   mp_queue = Queue()
 
@@ -36,14 +36,14 @@ from typing import TYPE_CHECKING, TypedDict
 from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
 
 # First party imports
-from sft_ext.rich.progress import Progress
+from sft_ext.rich import Progress
 from timeclock_entry_processor.employee_info import get_employee_info
 from timeclock_entry_processor.environment_init_vars import CWD
 from timeclock_entry_processor.pdf_gen import TimelinePDF, init_pdf_worker, start_mp_pdf_gen
 
 if TYPE_CHECKING:
   # First party imports
-  from sft_ext.logging.logging_bases import FixedLogRecord
+  from sft_ext.logging.bases import FixedLogRecord
 
 logger = getLogger(__name__)
 

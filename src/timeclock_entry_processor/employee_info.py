@@ -1,6 +1,6 @@
 if __name__ == "__main__":
   # First party imports
-  from sft_ext.logging.init_logging import init_logging
+  from sft_ext.logging.init import init_logging
 
   init_logging()
 # else:

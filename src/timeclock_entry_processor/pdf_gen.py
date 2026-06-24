@@ -1,6 +1,6 @@
 if __name__ == "__main__":
   # First party imports
-  from sft_ext.logging.init_logging import init_logging
+  from sft_ext.logging.init import init_logging
 
   init_logging()
 # else:
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
   from pandas import DataFrame
 
   # First party imports
-  from sft_ext.logging.logging_bases import FixedLogRecord
+  from sft_ext.logging.bases import FixedLogRecord
 
 logger = getLogger(__name__)
 
@@ -596,7 +596,7 @@ def init_pdf_worker(logging_queue: Queue[FixedLogRecord], pickled_bytes: bytes) 
   ~310 KB font blob across all store-week tasks.
   """
   # First party imports
-  from sft_ext.logging.init_logging import init_logging_worker
+  from sft_ext.logging.init import init_logging_worker
 
   init_logging_worker(logging_queue)
 
