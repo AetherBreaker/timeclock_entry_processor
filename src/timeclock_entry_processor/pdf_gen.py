@@ -1,8 +1,8 @@
 if __name__ == "__main__":
   # First party imports
-  from sft_ext.logging.init import init_logging
+  from sft_ext import initialize
 
-  init_logging()
+  initialize()
 # else:
 #   from rich import get_console
 
@@ -596,9 +596,9 @@ def init_pdf_worker(logging_queue: Queue[FixedLogRecord], pickled_bytes: bytes) 
   ~310 KB font blob across all store-week tasks.
   """
   # First party imports
-  from sft_ext.logging.init import init_logging_worker
+  from sft_ext import initialize_worker
 
-  init_logging_worker(logging_queue)
+  initialize_worker(logging_queue)
 
   global _PDF_TEMPLATE_BYTES
   _PDF_TEMPLATE_BYTES = pickled_bytes

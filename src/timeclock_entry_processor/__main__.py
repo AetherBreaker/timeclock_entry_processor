@@ -7,7 +7,7 @@ if __name__ == "__main__":
   from rich.console import Console
 
   # First party imports
-  from sft_ext.logging.init import init_logging
+  from sft_ext import initialize
 
   environ["TYPER_USE_RICH "] = "0"
 
@@ -23,7 +23,7 @@ if __name__ == "__main__":
 
   mp_queue = Queue()
 
-  init_logging(mp_queue)
+  initialize(mp_queue)
 
 
 # Standard library imports

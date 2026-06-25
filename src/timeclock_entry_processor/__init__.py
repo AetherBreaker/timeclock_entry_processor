@@ -11,11 +11,11 @@ if __name__ == "__main__":
   from multiprocessing import Queue
 
   # First party imports
-  from sft_ext.logging.init import init_logging
+  from sft_ext import initialize
 
   mp_queue = Queue()
 
-  init_logging(mp_queue)
+  initialize(mp_queue)
 else:
   # Third party imports
   from rich import get_console

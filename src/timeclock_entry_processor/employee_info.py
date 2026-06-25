@@ -1,8 +1,8 @@
 if __name__ == "__main__":
   # First party imports
-  from sft_ext.logging.init import init_logging
+  from sft_ext import initialize
 
-  init_logging()
+  initialize()
 # else:
 #   from rich import get_console
 

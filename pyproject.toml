@@ -44,9 +44,7 @@
 [tool.ruff]
   extend = "../pyproject.toml"
 
-  src = [
-    "./src",
-  ]
+  src = ["./src"]
 
 [tool.uv]
   environments = [
