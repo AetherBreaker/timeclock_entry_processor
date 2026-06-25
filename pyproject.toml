@@ -1,6 +1,6 @@
 [project]
   name            = "timeclock_entry_processor"
-  version         = "1.7.1"
+  version         = "1.7.2"
   description     = "Add your description here"
   readme          = "README.md"
   requires-python = ">=3.14"
@@ -13,7 +13,7 @@
     "pydantic-settings==2.*",
     "python-dateutil==2.9.*",
     "rich==15.*",
-    "sft-ext==1.1.0",
+    "sft-ext==1.2.0",
     "typer>=0.26.0",
     "types-python-dateutil==2.9.*",
     "tzdata>=2025.3",
@@ -56,6 +56,6 @@
 
   [tool.uv.sources]
     sft-ext = [
-      { git = "https://github.com/AetherBreaker/sft_ext", marker = "sys_platform == 'linux'", tag = "v1.1.0" },
-      { path = "D:\\SFT Software Projects\\sft_ext", editable = true, marker = "sys_platform == 'win32'" },
+      { git = "https://github.com/AetherBreaker/sft_ext", marker = "sys_platform == 'linux'", tag = "v1.2.0" },
+      { path = "../sft_ext", editable = true, marker = "sys_platform == 'win32'" },
     ]
