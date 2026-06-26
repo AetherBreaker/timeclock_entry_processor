@@ -596,9 +596,9 @@ def init_pdf_worker(logging_queue: Queue[FixedLogRecord], pickled_bytes: bytes) 
   ~310 KB font blob across all store-week tasks.
   """
   # First party imports
-  from sft_ext import initialize_worker
+  from sft_ext import initialize
 
-  initialize_worker(logging_queue)
+  initialize(logging_queue, worker=True)
 
   global _PDF_TEMPLATE_BYTES
   _PDF_TEMPLATE_BYTES = pickled_bytes
