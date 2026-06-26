@@ -55,5 +55,5 @@
   [tool.uv.sources]
     sft-ext = [
       { git = "https://github.com/AetherBreaker/sft_ext", marker = "sys_platform == 'linux'", tag = "v1.3.4" },
-      { path = "./../sft_ext", editable = true, marker = "sys_platform == 'win32'" }
+      { path = "D:/SFT Software Projects/SFT Workspace/sft_ext", editable = true, marker = "sys_platform == 'win32'" },
     ]
