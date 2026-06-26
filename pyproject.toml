@@ -1,6 +1,6 @@
 [project]
   name            = "timeclock_entry_processor"
-  version         = "1.7.6"
+  version         = "1.7.7"
   description     = "Add your description here"
   readme          = "README.md"
   requires-python = ">=3.14"
@@ -49,5 +49,5 @@
 [tool.uv]
   [tool.uv.sources]
     sft-ext = [
-      { git = "https://github.com/AetherBreaker/sft_ext", tag = "v1.3.1" }
+      { git = "https://github.com/AetherBreaker/sft_ext", tag = "v1.3.3" }
     ]
