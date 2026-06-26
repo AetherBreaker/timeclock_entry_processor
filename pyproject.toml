@@ -5,6 +5,7 @@
   readme          = "README.md"
   requires-python = ">=3.14"
   dependencies    = [
+    "aeth-ext==1.3.4",
     "aiologic>=0.16.0",
     "fpdf2>=2.8.7",
     "pandas-stubs==3.*",
@@ -13,7 +14,6 @@
     "pydantic-settings==2.*",
     "python-dateutil==2.9.*",
     "rich==15.*",
-    "sft-ext==1.3.4",
     "typer>=0.26.0",
     "types-python-dateutil==2.9.*",
     "tzdata>=2025.3",
@@ -53,7 +53,7 @@
   ]
 
   [tool.uv.sources]
-    sft-ext = [
-      { git = "https://github.com/AetherBreaker/sft_ext", marker = "sys_platform == 'linux'", tag = "v1.3.4" },
-      { path = "D:/SFT Software Projects/SFT Workspace/sft_ext", editable = true, marker = "sys_platform == 'win32'" },
+    aeth-ext = [
+      { git = "https://github.com/AetherBreaker/aeth_ext", marker = "sys_platform == 'linux'", tag = "v1.3.4" },
+      { path = "D:/SFT Software Projects/SFT Workspace/aeth_ext", editable = true, marker = "sys_platform == 'win32'" },
     ]

@@ -1,6 +1,6 @@
 if __name__ == "__main__":
-  # First party imports
-  from sft_ext import initialize
+  # Third party imports
+  from aeth_ext import initialize
 
   initialize()
 # else:

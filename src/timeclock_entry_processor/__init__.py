@@ -10,8 +10,8 @@ if __name__ == "__main__":
   # Standard library imports
   from multiprocessing import Queue
 
-  # First party imports
-  from sft_ext import initialize
+  # Third party imports
+  from aeth_ext import initialize
 
   mp_queue = Queue()
 
@@ -33,17 +33,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 # Third party imports
+from aeth_ext.rich import Progress
 from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
 
 # First party imports
-from sft_ext.rich import Progress
 from timeclock_entry_processor.employee_info import get_employee_info
 from timeclock_entry_processor.environment_init_vars import CWD
 from timeclock_entry_processor.pdf_gen import TimelinePDF, init_pdf_worker, start_mp_pdf_gen
 
 if TYPE_CHECKING:
-  # First party imports
-  from sft_ext.logging.bases import FixedLogRecord
+  # Third party imports
+  from aeth_ext.logging.bases import FixedLogRecord
 
 logger = getLogger(__name__)
 

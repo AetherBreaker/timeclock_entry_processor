@@ -1,6 +1,6 @@
 if __name__ == "__main__":
-  # First party imports
-  from sft_ext import initialize
+  # Third party imports
+  from aeth_ext import initialize
 
   initialize()
 # else:
@@ -27,10 +27,8 @@ if TYPE_CHECKING:
   from pathlib import Path
 
   # Third party imports
+  from aeth_ext.logging.bases import FixedLogRecord
   from pandas import DataFrame
-
-  # First party imports
-  from sft_ext.logging.bases import FixedLogRecord
 
 logger = getLogger(__name__)
 
@@ -595,8 +593,8 @@ def init_pdf_worker(logging_queue: Queue[FixedLogRecord], pickled_bytes: bytes) 
   only N_workers times (not once per task), eliminating repeated copies of the
   ~310 KB font blob across all store-week tasks.
   """
-  # First party imports
-  from sft_ext import initialize
+  # Third party imports
+  from aeth_ext import initialize
 
   initialize(logging_queue, worker=True)
 
