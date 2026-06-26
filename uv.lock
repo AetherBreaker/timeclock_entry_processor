@@ -12,7 +12,7 @@ supported-markers = [
 
 [[package]]
 name = "aeth-ext"
-version = "2.0.2"
+version = "2.0.3"
 source = { registry = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" }
 resolution-markers = [
     "sys_platform == 'linux'",
@@ -24,14 +24,14 @@ dependencies = [
     { name = "rich", marker = "sys_platform == 'linux'" },
     { name = "tzdata", marker = "sys_platform == 'linux'" },
 ]
-sdist = { url = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+f/253/f070a22f78479/aeth_ext-2.0.2.tar.gz", hash = "sha256:253f070a22f784794e4260a50e03a153336f3b365de11316dcf1ff83868aef51" }
+sdist = { url = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+f/845/69891ad128454/aeth_ext-2.0.3.tar.gz", hash = "sha256:84569891ad128454303be9f09e1224472dc1cb2a3adb609c514288c0eb34d42e" }
 wheels = [
-    { url = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+f/580/702a185eaf47f/aeth_ext-2.0.2-py3-none-any.whl", hash = "sha256:580702a185eaf47f54246fff7148e8e5294826027dd6a1abc07292e4653b3f24" },
+    { url = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+f/171/3e3fcbbd691fc/aeth_ext-2.0.3-py3-none-any.whl", hash = "sha256:1713e3fcbbd691fca7ca41b9c973190efc95a367559f35a55bf3adac4eb946ba" },
 ]
 
 [[package]]
 name = "aeth-ext"
-version = "2.0.2"
+version = "2.0.3"
 source = { editable = "../aeth_ext" }
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -482,11 +482,11 @@ wheels = [
 
 [[package]]
 name = "timeclock-entry-processor"
-version = "1.7.9"
+version = "1.7.10"
 source = { virtual = "." }
 dependencies = [
-    { name = "aeth-ext", version = "2.0.2", source = { registry = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" }, marker = "sys_platform == 'linux'" },
-    { name = "aeth-ext", version = "2.0.2", source = { editable = "../aeth_ext" }, marker = "sys_platform == 'win32'" },
+    { name = "aeth-ext", version = "2.0.3", source = { registry = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" }, marker = "sys_platform == 'linux'" },
+    { name = "aeth-ext", version = "2.0.3", source = { editable = "../aeth_ext" }, marker = "sys_platform == 'win32'" },
     { name = "aiologic", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "fpdf2", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "pandas", extra = ["performance"], marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
@@ -504,8 +504,8 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aeth-ext", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.0.2" },
-    { name = "aeth-ext", marker = "sys_platform == 'linux'", specifier = ">=2.0.2", index = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" },
+    { name = "aeth-ext", marker = "sys_platform != 'linux' and sys_platform != 'win32'", specifier = ">=2.0.3" },
+    { name = "aeth-ext", marker = "sys_platform == 'linux'", specifier = ">=2.0.3", index = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" },
     { name = "aeth-ext", marker = "sys_platform == 'win32'", editable = "../aeth_ext" },
     { name = "aiologic", specifier = ">=0.16.0" },
     { name = "fpdf2", specifier = ">=2.8.7" },
