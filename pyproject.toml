@@ -5,7 +5,7 @@
   readme          = "README.md"
   requires-python = ">=3.14"
   dependencies    = [
-    "aeth-ext==1.3.4",
+    "aeth-ext>=2.0.2",
     "aiologic>=0.16.0",
     "fpdf2>=2.8.7",
     "pandas-stubs==3.*",
@@ -21,19 +21,12 @@
     "winloop>=0.6.0 ; sys_platform == 'win32'",
   ]
 
-[tool.poe.tasks.bump]
-  help        = "Bump version, commit, tag, and push. Usage: poe bump [major|minor|patch]"
-  interpreter = "bash"
-  shell       = """
-    set -e
-    NEW_VERSION=$(uv version --bump "${bump_type}" | awk '{print $NF}')
-    git add pyproject.toml uv.lock
-    git commit -m "Bump version to ${NEW_VERSION}"
-    git tag -a "v${NEW_VERSION}" -m "Version ${NEW_VERSION}"
-    git push --follow-tags
-  """
+[tool.poe.tasks.release]
+  help    = "Bump version, commit, tag, build, and publish to GitHub and SFTPyPI. Usage: poe release [major|minor|patch]"
+  envfile = ".env"
+  cmd     = "bash scripts/release.sh ${bump_type}"
 
-  [[tool.poe.tasks.bump.args]]
+  [[tool.poe.tasks.release.args]]
     name       = "bump_type"
     positional = true
     help       = "Version component to bump: major, minor, or patch"
@@ -54,6 +47,11 @@
 
   [tool.uv.sources]
     aeth-ext = [
-      { git = "https://github.com/AetherBreaker/aeth_ext", marker = "sys_platform == 'linux'", tag = "v1.3.4" },
-      { path = "D:/SFT Software Projects/SFT Workspace/aeth_ext", editable = true, marker = "sys_platform == 'win32'" },
+      { index = "SFTPyPI", marker = "sys_platform == 'linux'" },
+      { path = "../aeth_ext", editable = true, marker = "sys_platform == 'win32'" },
     ]
+
+  [[tool.uv.index]]
+    name        = "SFTPyPI"
+    url         = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple"
+    publish-url = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/"
