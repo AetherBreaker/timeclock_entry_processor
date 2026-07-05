@@ -1,5 +1,5 @@
 if __name__ == "__main__":
-  # Third party imports
+  # First party imports
   from aeth_ext import initialize
 
   initialize()
@@ -27,8 +27,10 @@ if TYPE_CHECKING:
   from pathlib import Path
 
   # Third party imports
-  from aeth_ext.logging.bases import FixedLogRecord
   from pandas import DataFrame
+
+  # First party imports
+  from aeth_ext.logging.bases import NamedLogRecord
 
 logger = getLogger(__name__)
 
@@ -586,14 +588,14 @@ class TimelinePDF(FPDF):
         self.cell(group_legend_width - 4, 3, group_name, align="L")
 
 
-def init_pdf_worker(logging_queue: Queue[FixedLogRecord], pickled_bytes: bytes) -> None:
+def init_pdf_worker(logging_queue: Queue[NamedLogRecord], pickled_bytes: bytes) -> None:
   """ProcessPoolExecutor initializer: cache the PDF font template and configure logging.
 
   Called once per worker process so the font template is transmitted via IPC
   only N_workers times (not once per task), eliminating repeated copies of the
   ~310 KB font blob across all store-week tasks.
   """
-  # Third party imports
+  # First party imports
   from aeth_ext import initialize
 
   initialize(logging_queue, worker=True)
@@ -614,16 +616,14 @@ def start_mp_pdf_gen(
   pdf_path: Path,
 ):
   logger.info(
-    f"""Processing Store {store_number}
-    Date range: {week_start} to {week_end}"""
+    "Processing Store %s\n    Date range: %s to %s", store_number, week_start, week_end
   )
   pdf: TimelinePDF = pickle.loads(_PDF_TEMPLATE_BYTES)  # type: ignore[arg-type]
   pdf.configure(unique_employees, employee_id_to_group, store_number)
   pdf.render_week(week_start, week_end, week_df, min_time, max_time)
   pdf.output(str(pdf_path))
   logger.info(
-    f"""Finished {store_number} - {week_start} to {week_end}
-    Saved to: {pdf_path}"""
+    "Finished %s - %s to %s\n    Saved to: %s", store_number, week_start, week_end, pdf_path
   )
 
 
