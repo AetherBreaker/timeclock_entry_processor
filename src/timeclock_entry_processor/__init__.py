@@ -10,7 +10,7 @@ if __name__ == "__main__":
   # Standard library imports
   from multiprocessing import Queue
 
-  # Third party imports
+  # First party imports
   from aeth_ext import initialize
 
   mp_queue = Queue()
@@ -33,17 +33,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 # Third party imports
-from aeth_ext.rich import Progress
 from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
 
 # First party imports
+from aeth_ext.rich.progress import Progress
 from timeclock_entry_processor.employee_info import get_employee_info
 from timeclock_entry_processor.environment_init_vars import CWD
 from timeclock_entry_processor.pdf_gen import TimelinePDF, init_pdf_worker, start_mp_pdf_gen
 
 if TYPE_CHECKING:
-  # Third party imports
-  from aeth_ext.logging.bases import FixedLogRecord
+  # First party imports
+  from aeth_ext.logging.bases import TaggedLogRecord
 
 logger = getLogger(__name__)
 
@@ -219,7 +219,7 @@ def process_store_data(
   return week_args
 
 
-def main(mp_queue: Queue[FixedLogRecord], input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
+def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
   df = load_and_parse_data(input_path)
   logger.info(f"Total entries loaded: {len(df)}\nOverall date range: {df['Date'].min()} to {df['Date'].max()}")
 

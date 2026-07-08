@@ -1,5 +1,5 @@
 if __name__ == "__main__":
-  # Third party imports
+  # First party imports
   from aeth_ext import initialize
 
   initialize()
@@ -27,8 +27,10 @@ if TYPE_CHECKING:
   from pathlib import Path
 
   # Third party imports
-  from aeth_ext.logging.bases import FixedLogRecord
   from pandas import DataFrame
+
+  # First party imports
+  from aeth_ext.logging.bases import TaggedLogRecord
 
 logger = getLogger(__name__)
 
@@ -586,17 +588,17 @@ class TimelinePDF(FPDF):
         self.cell(group_legend_width - 4, 3, group_name, align="L")
 
 
-def init_pdf_worker(logging_queue: Queue[FixedLogRecord], pickled_bytes: bytes) -> None:
+def init_pdf_worker(logging_queue: Queue[TaggedLogRecord], pickled_bytes: bytes) -> None:
   """ProcessPoolExecutor initializer: cache the PDF font template and configure logging.
 
   Called once per worker process so the font template is transmitted via IPC
   only N_workers times (not once per task), eliminating repeated copies of the
   ~310 KB font blob across all store-week tasks.
   """
-  # Third party imports
+  # First party imports
   from aeth_ext import initialize
 
-  initialize(logging_queue, worker=True)
+  initialize(logging_queue, logging="worker")
 
   global _PDF_TEMPLATE_BYTES
   _PDF_TEMPLATE_BYTES = pickled_bytes

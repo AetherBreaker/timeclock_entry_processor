@@ -18,7 +18,7 @@
                 "PYTHONUNBUFFERED": "1"
             },
             "args": [
-                "${workspaceFolder}/input/Time-Clock-Entry-Report_2026-05-14_19-31-12.csv"
+                "${workspaceFolder}/input/Automated-Schedule-Report_2026-07-07_12-00-28.csv"
             ]
         },
         {
