@@ -615,18 +615,12 @@ def start_mp_pdf_gen(
   max_time: time,
   pdf_path: Path,
 ):
-  logger.info(
-    f"""Processing Store {store_number}
-    Date range: {week_start} to {week_end}"""
-  )
+  logger.info("Processing Store %s\n    Date range: %s to %s", store_number, week_start, week_end)
   pdf: TimelinePDF = pickle.loads(_PDF_TEMPLATE_BYTES)  # type: ignore[arg-type]
   pdf.configure(unique_employees, employee_id_to_group, store_number)
   pdf.render_week(week_start, week_end, week_df, min_time, max_time)
   pdf.output(str(pdf_path))
-  logger.info(
-    f"""Finished {store_number} - {week_start} to {week_end}
-    Saved to: {pdf_path}"""
-  )
+  logger.info("Finished %s - %s to %s\n    Saved to: %s", store_number, week_start, week_end, pdf_path)
 
 
 # if __name__ == "__main__":

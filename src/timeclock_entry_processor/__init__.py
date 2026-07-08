@@ -221,7 +221,7 @@ def process_store_data(
 
 def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
   df = load_and_parse_data(input_path)
-  logger.info(f"Total entries loaded: {len(df)}\nOverall date range: {df['Date'].min()} to {df['Date'].max()}")
+  logger.info("Total entries loaded: %d\nOverall date range: %s to %s", len(df), df["Date"].min(), df["Date"].max())
 
   # Initialize reusable TimelinePDF class pickle
   initial = TimelinePDF(FONT_INPUT_FOLDER)
