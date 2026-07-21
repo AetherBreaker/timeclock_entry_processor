@@ -598,7 +598,7 @@ def init_pdf_worker(logging_queue: Queue[TaggedLogRecord], pickled_bytes: bytes)
   # First party imports
   from aeth_ext import initialize
 
-  initialize(logging_queue, logging="worker")
+  initialize(logging_queue, logging="to_queue")
 
   global _PDF_TEMPLATE_BYTES
   _PDF_TEMPLATE_BYTES = pickled_bytes
