@@ -18,6 +18,9 @@
     "winloop>=0.6.0 ; sys_platform == 'win32'",
   ]
 
+  [project.scripts]
+    timeclock-entry-processor = "timeclock_entry_processor.__main__:app"
+
 [dependency-groups]
   dev = [
     "pandas-stubs>=3.0.0",
