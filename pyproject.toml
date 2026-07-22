@@ -26,14 +26,45 @@
     "types-python-dateutil>=2.9.0",
   ]
 
+[tool.coverage.run]
+  data_file   = ".cache/.coverage"
+  source_pkgs = ["aeth_ext"]
+
+[tool.coverage.report]
+  show_missing = true
+
+[tool.docker]
+  # Paths relative to /app that the entrypoint will chown to nonroot:nonroot.
+  # Typically these are directories that will be bind-mounted as Docker volumes.
+  chown_paths = [
+    "persisted_data",
+  ]
+  # Paths relative to /app that the entrypoint will create (mkdir -p) and chown.
+  # These are implicitly included in the chown step.
+  mkdirs      = []
+
 [tool.poe]
   include_script = "poe_tasks:tasks"
 
 [tool.pyright]
   extends = "../pyproject.toml"
 
+[tool.pytest.ini_options]
+  addopts      = [
+    "--cov",
+    "--cov-report=term-missing",
+    "--strict-markers",
+    "--strict-config",
+    "-ra"
+  ]
+  cache_dir    = ".cache/pytest"
+  testpaths    = ["tests"]
+  xfail_strict = true
+  asyncio_mode = "auto"
+
 [tool.ruff]
-  extend = "../pyproject.toml"
+  extend    = "../pyproject.toml"
+  cache-dir = ".cache/ruff"
 
   src = ["./src"]
 
@@ -48,12 +79,10 @@
       { index = "SFTPyPI", marker = "sys_platform == 'linux'" },
       { path = "../aeth_ext", editable = true, marker = "sys_platform == 'win32'" },
     ]
-    # aeth-ext  = [
-    #   { index = "SFTPyPI" },
-    # ]
     poe-tasks = [
-      { index = "SFTPyPI", marker = "sys_platform == 'linux'" },
-      { path = "../poe_tasks", editable = true, marker = "sys_platform == 'win32'" },
+      { index = "SFTPyPI" },
+      # , marker = "sys_platform == 'linux'"
+      # { path = "../poe_tasks", editable = true, marker = "sys_platform == 'win32'" },
     ]
 
   [[tool.uv.index]]
