@@ -17,7 +17,7 @@ RICH_CONSOLE = Console(
   log_time=platform == "win32",
 )
 PROJECT_NAME = "timeclock_entry_processor"
-LOGGING_TYPE = "daily"
+LOGGING_TYPE = "per_run"
 
 CWD = Path.cwd()
 
