@@ -46,7 +46,7 @@ def cli(
   output_folder.mkdir(parents=True, exist_ok=True)
 
   if logging_queue_authkey is not None:
-    authkey = logging_queue_authkey.encode("utf-8")
+    authkey = bytes.fromhex(logging_queue_authkey)
     manager = ClientQueueManager(address=("127.0.0.1", 50000), authkey=authkey)
     manager.connect()
     mp_queue = manager.get_shared_queue()
