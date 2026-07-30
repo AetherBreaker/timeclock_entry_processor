@@ -38,7 +38,7 @@ def cli(
   csv_file: Path,
   manifest_file: Annotated[Path | None, typer.Argument()] = None,
   output_folder: Annotated[Path, typer.Argument()] = CWD / "timeclock_entry_processor_output",
-  logging_queue_authkey: Annotated[str | None, typer.Option()] = None,
+  logging_queue_authkey: Annotated[str | None, typer.Argument()] = None,
 ):
   if not csv_file.exists():
     RICH_CONSOLE.print(f"[red]Error: File '{csv_file}' does not exist.[/red]")
