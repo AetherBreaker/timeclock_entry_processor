@@ -51,8 +51,16 @@ logger = getLogger(__name__)
 type ProcessResult = list[tuple[list[str], dict[str, str], int, date, date, DataFrame, time, time, Path]]
 
 
+FONT_INPUT_FOLDER = CWD / "font_input"
+if not FONT_INPUT_FOLDER.exists():
+  raise FileNotFoundError(f"Font input folder not found at {FONT_INPUT_FOLDER}. Please create it and add necessary font files.")
+
 DEFAULT_OUT_TIME = time(21, 0)  # 9:00 PM
 HOURS_PER_DAY = 24
+# Load employee group information
+EMPLOYEE_INFO = get_employee_info()
+# Create a dictionary mapping employee ID to group for O(1) lookups (instead of DataFrame filtering)
+EMPLOYEE_ID_TO_GROUP: dict[str, str] = dict(zip(EMPLOYEE_INFO["id"], EMPLOYEE_INFO["group"], strict=False))
 
 EXPECTED_HEADERS = [
   "Store",
@@ -212,20 +220,11 @@ def process_store_data(
 
 
 def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
-  font_input_folder = CWD / "font_input"
-  if not font_input_folder.exists():
-    raise FileNotFoundError(f"Font input folder not found at {font_input_folder}. Please create it and add necessary font files.")
-
-  # Load employee group information
-  employee_info = get_employee_info()
-  # Create a dictionary mapping employee ID to group for O(1) lookups (instead of DataFrame filtering)
-  employee_id_to_group: dict[str, str] = dict(zip(employee_info["id"], employee_info["group"], strict=False))
-
   df = load_and_parse_data(input_path)
   logger.info("Total entries loaded: %d\nOverall date range: %s to %s", len(df), df["Date"].min(), df["Date"].max())
 
   # Initialize reusable TimelinePDF class pickle
-  initial = TimelinePDF(font_input_folder)
+  initial = TimelinePDF(FONT_INPUT_FOLDER)
   pickled_pdf_inst = pickle.dumps(initial, protocol=pickle.HIGHEST_PROTOCOL)
 
   # Group by store
@@ -259,7 +258,7 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
             process_store_data,
             int(store_number),  # type: ignore
             store_df,
-            employee_id_to_group,
+            EMPLOYEE_ID_TO_GROUP,
             output_folder,
             manifest,
           )

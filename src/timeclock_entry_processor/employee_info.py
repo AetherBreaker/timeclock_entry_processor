@@ -1,5 +1,5 @@
 if __name__ == "__main__":
-  # First party imports
+  # Third party imports
   from aeth_ext import initialize
 
   initialize()
@@ -10,7 +10,6 @@ if __name__ == "__main__":
 
 # Standard library imports
 from logging import getLogger
-from typing import TYPE_CHECKING
 
 # Third party imports
 from pandas import DataFrame, read_csv
@@ -18,41 +17,20 @@ from pandas import DataFrame, read_csv
 # First party imports
 from timeclock_entry_processor.environment_init_vars import CWD
 
-if TYPE_CHECKING:
-  # Standard library imports
-  from pathlib import Path
-
 logger = getLogger(__name__)
 
 EMPLOYEE_INPUT_DIR = CWD / "employee_input"
 EMPLOYEE_INPUT_DIR.mkdir(exist_ok=True)  # Ensure the directory exists
 
+MANUAL_EMPLOYEE_LIST_CSV = max(EMPLOYEE_INPUT_DIR.iterdir(), key=lambda f: f.stat().st_mtime)
+
 type EmployeeGroup = str
 type EmployeeName = str
-
-_employee_data_path: Path | None = None
-
-
-def _latest_manual_employee_list_csv() -> Path:
-  """Return the most recently modified file in EMPLOYEE_INPUT_DIR.
-
-  Resolved lazily (rather than at import time) since merely importing this
-  module — e.g. to inspect logging config from another process — must not
-  fail just because EMPLOYEE_INPUT_DIR happens to be empty in that context.
-  """
-  if _employee_data_path is None:
-    try:
-      return max(EMPLOYEE_INPUT_DIR.iterdir(), key=lambda f: f.stat().st_mtime)
-    except ValueError:
-      raise FileNotFoundError(f"No files found in {EMPLOYEE_INPUT_DIR}") from None
-
-  else:
-    return _employee_data_path
 
 
 def get_employee_info() -> DataFrame:  # sourcery skip: extract-method
   employee_df = read_csv(
-    _latest_manual_employee_list_csv(),
+    MANUAL_EMPLOYEE_LIST_CSV,
     header=0,
     names=[
       "id",
