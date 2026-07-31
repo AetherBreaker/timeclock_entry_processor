@@ -898,7 +898,7 @@ wheels = [
 
 [[package]]
 name = "timeclock-entry-processor"
-version = "1.10.0"
+version = "1.10.1"
 source = { editable = "." }
 dependencies = [
     { name = "aeth-ext", version = "6.0.1", source = { registry = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" }, marker = "sys_platform == 'linux'" },
