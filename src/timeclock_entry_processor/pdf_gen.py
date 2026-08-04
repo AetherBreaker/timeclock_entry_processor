@@ -604,7 +604,7 @@ def init_pdf_worker(logging_queue: Queue[TaggedLogRecord], pickled_bytes: bytes)
   _PDF_TEMPLATE_BYTES = pickled_bytes
 
 
-def start_mp_pdf_gen(
+def start_mp_pdf_gen(  # noqa: PLR0917
   unique_employees: list[str],
   employee_id_to_group: dict[str, str],
   store_number: int,

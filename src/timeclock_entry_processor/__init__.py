@@ -236,7 +236,7 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
   if manifest_file is not None:
     manifest = {}
 
-  with Progress(console=RICH_CONSOLE, auto_refresh=False) as progress:
+  with Progress(console=RICH_CONSOLE, auto_refresh=False) as progress:  # noqa: SIM117
     with progress.add_task("[magenta]Processing weeks...") as data_task:
       with (
         ProcessPoolExecutor(
