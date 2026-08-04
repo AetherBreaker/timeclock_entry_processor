@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 logger = getLogger(__name__)
 
 EMPLOYEE_INPUT_DIR = CWD / "employee_input"
-EMPLOYEE_INPUT_DIR.mkdir(exist_ok=True)  # Ensure the directory exists
 
 type EmployeeGroup = str
 type EmployeeName = str
@@ -41,6 +40,7 @@ def _latest_manual_employee_list_csv() -> Path:
   fail just because EMPLOYEE_INPUT_DIR happens to be empty in that context.
   """
   if _employee_data_path is None:
+    EMPLOYEE_INPUT_DIR.mkdir(exist_ok=True)  # Ensure the directory exists
     try:
       return max(EMPLOYEE_INPUT_DIR.iterdir(), key=lambda f: f.stat().st_mtime)
     except ValueError:
