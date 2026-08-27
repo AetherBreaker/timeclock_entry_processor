@@ -236,41 +236,41 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
   if manifest_file is not None:
     manifest = {}
 
-  with Progress(console=RICH_CONSOLE, auto_refresh=False) as progress:  # noqa: SIM117
+  with (  # noqa: SIM117
+    Progress(console=RICH_CONSOLE, auto_refresh=False) as progress,
+    ProcessPoolExecutor(
+      # max_workers=1,
+      initializer=init_pdf_worker,
+      initargs=(mp_queue, pickled_pdf_inst),
+    ) as procpool,
+    ThreadPoolExecutor(
+      # max_workers=1,
+    ) as threadpool,
+  ):
     with progress.add_task("[magenta]Processing weeks...") as data_task:
-      with (
-        ProcessPoolExecutor(
-          # max_workers=1,
-          initializer=init_pdf_worker,
-          initargs=(mp_queue, pickled_pdf_inst),
-        ) as procpool,
-        ThreadPoolExecutor(
-          # max_workers=1,
-        ) as threadpool,
-      ):
-        proc_futures = []
+      proc_futures = []
 
-        def update_completed_progress(future: Future[None]) -> None:
-          future.result()
-          progress.update(data_task, advance=1, total=len(proc_futures), refresh=True)
+      def update_completed_progress(future: Future[None]) -> None:
+        future.result()
+        progress.update(data_task, advance=1, total=len(proc_futures), refresh=True)
 
-        thread_futures = [
-          threadpool.submit(
-            process_store_data,
-            int(store_number),  # type: ignore
-            store_df,
-            employee_id_to_group,
-            output_folder,
-            manifest,
-          )
-          for store_number, store_df in stores
-        ]
-        for future in as_completed(thread_futures):
-          result = future.result()
-          for week_args in result:
-            proc_future = procpool.submit(start_mp_pdf_gen, *week_args)
-            proc_future.add_done_callback(update_completed_progress)
-            proc_futures.append(proc_future)
+      thread_futures = [
+        threadpool.submit(
+          process_store_data,
+          int(store_number),  # type: ignore
+          store_df,
+          employee_id_to_group,
+          output_folder,
+          manifest,
+        )
+        for store_number, store_df in stores
+      ]
+      for future in as_completed(thread_futures):
+        result = future.result()
+        for week_args in result:
+          proc_future = procpool.submit(start_mp_pdf_gen, *week_args)
+          proc_future.add_done_callback(update_completed_progress)
+          proc_futures.append(proc_future)
 
   if manifest:
     assert manifest_file is not None
