@@ -23,7 +23,7 @@
 [dependency-groups]
   dev = [
     "pandas-stubs>=3.0.0",
-    "poe-tasks>=4.0.1",
+    "aeth-devkit>=7.0.0",
     "poethepoet>=0.46.0",
     "types-python-dateutil>=2.9.0",
   ]
@@ -50,7 +50,7 @@
   mkdirs      = []
 
 [tool.poe]
-  include_script = [{ script = "poe_tasks:tasks", executor = { type = "uv", frozen = true } }]
+  include_script = [{ script = "aeth_devkit:tasks", executor = { type = "uv", frozen = true } }]
 
 [tool.pyright]
   extends = "../pyproject.toml"
@@ -85,10 +85,10 @@
       { index = "SFTPyPI", marker = "sys_platform == 'linux'" },
       { path = "../aeth_ext", editable = true, marker = "sys_platform == 'win32'" },
     ]
-    poe-tasks = [
+    aeth-devkit = [
       { index = "SFTPyPI" },
       # , marker = "sys_platform == 'linux'"
-      # { path = "../poe_tasks", editable = true, marker = "sys_platform == 'win32'" },
+      # { path = "../aeth-devkit", editable = true, marker = "sys_platform == 'win32'" },
     ]
 
   [[tool.uv.index]]

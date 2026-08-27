@@ -13,6 +13,19 @@ supported-markers = [
 ]
 
 [[package]]
+name = "aeth-devkit"
+version = "7.0.2"
+source = { registry = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" }
+dependencies = [
+    { name = "poethepoet", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+    { name = "poethepoet-tasks", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+sdist = { url = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+f/5a9/fec69c88fbd17/aeth_devkit-7.0.2.tar.gz", hash = "sha256:5a9fec69c88fbd1710914458dbf626bd3ea2dfbbec73692335ddd38953282287" }
+wheels = [
+    { url = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+f/b13/bf39026f2df83/aeth_devkit-7.0.2-py3-none-win_amd64.whl", hash = "sha256:b13bf39026f2df83968cbd80df6964ca55b146f83bbb896e2dd724b09aabbed5" },
+]
+
+[[package]]
 name = "aeth-ext"
 version = "6.2.3"
 source = { registry = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" }
@@ -39,7 +52,7 @@ wheels = [
 
 [[package]]
 name = "aeth-ext"
-version = "6.2.3"
+version = "8.0.4"
 source = { editable = "../aeth_ext" }
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'win32'",
@@ -86,18 +99,20 @@ provides-extras = ["app", "async", "logserver", "sftp"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "aeth-devkit", specifier = ">=7.0.2", index = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" },
     { name = "aiohttp", specifier = ">=3.14.1" },
     { name = "cloudpickle", specifier = ">=3.1.2" },
     { name = "debugpy", specifier = ">=1.8.21" },
     { name = "hypothesis", specifier = ">=6.164.0" },
     { name = "paramiko", specifier = ">=5.0.0" },
-    { name = "poe-tasks", specifier = ">=4.0.0", index = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" },
+    { name = "poethepoet", specifier = ">=0.46.0" },
     { name = "py-yaml12", specifier = ">=0.1.0" },
     { name = "pyftpdlib", specifier = ">=2.2.0" },
-    { name = "pyright", specifier = ">=1.1.409" },
+    { name = "pyright", specifier = ">=1.1.411" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "pytest-dotenv", specifier = ">=0.5.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "ruff", specifier = ">=0.13.0" },
     { name = "textual", specifier = ">=8.2.8" },
@@ -646,19 +661,6 @@ wheels = [
 ]
 
 [[package]]
-name = "poe-tasks"
-version = "4.3.6"
-source = { registry = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" }
-dependencies = [
-    { name = "poethepoet", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "poethepoet-tasks", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-]
-sdist = { url = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+f/b34/abe3215ac0d1b/poe_tasks-4.3.6.tar.gz", hash = "sha256:b34abe3215ac0d1b4ef3a9ca3a1898d8c5b98849354c47f378c6b45904b745c2" }
-wheels = [
-    { url = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+f/9cd/cd3ec3a88f7c0/poe_tasks-4.3.6-py3-none-any.whl", hash = "sha256:9cdcd3ec3a88f7c0ba7e42c8b185f875986ee4f0001020cd5d1582274730489d" },
-]
-
-[[package]]
 name = "poethepoet"
 version = "0.48.0"
 source = { registry = "https://pypi.org/simple" }
@@ -942,7 +944,7 @@ version = "1.10.3"
 source = { editable = "." }
 dependencies = [
     { name = "aeth-ext", version = "6.2.3", source = { registry = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" }, marker = "sys_platform == 'linux'" },
-    { name = "aeth-ext", version = "6.2.3", source = { editable = "../aeth_ext" }, marker = "sys_platform == 'win32'" },
+    { name = "aeth-ext", version = "8.0.4", source = { editable = "../aeth_ext" }, marker = "sys_platform == 'win32'" },
     { name = "aiologic", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "fpdf2", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "pandas", extra = ["performance"], marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
@@ -957,8 +959,8 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "aeth-devkit", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "pandas-stubs", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
-    { name = "poe-tasks", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "poethepoet", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
     { name = "types-python-dateutil", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
 ]
@@ -982,8 +984,8 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "aeth-devkit", specifier = ">=7.0.0", index = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" },
     { name = "pandas-stubs", specifier = ">=3.0.0" },
-    { name = "poe-tasks", specifier = ">=4.0.1", index = "https://pypi.sweetfiretobacco.com/jacob.ogden/internal/+simple" },
     { name = "poethepoet", specifier = ">=0.46.0" },
     { name = "types-python-dateutil", specifier = ">=2.9.0" },
 ]
