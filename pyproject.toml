@@ -34,7 +34,7 @@
 
 [tool.coverage.run]
   data_file   = ".cache/.coverage"
-  source_pkgs = ["aeth_ext"]
+  source_pkgs = ["timeclock_entry_processor"]
 
 [tool.coverage.report]
   show_missing = true
