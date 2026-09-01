@@ -30,7 +30,9 @@ from json import dump
 from logging import getLogger
 from multiprocessing import Queue
 from pathlib import Path
-from typing import TYPE_CHECKING, TypedDict
+from sys import stderr
+from traceback import format_exception
+from typing import TYPE_CHECKING, NoReturn, TypedDict
 
 # Third party imports
 from pandas import DataFrame, concat, read_csv, to_datetime, to_numeric
@@ -211,6 +213,22 @@ def process_store_data(
   return week_args
 
 
+def _report_failures_and_exit(failures: list[tuple[int, date, BaseException]], total: int) -> NoReturn:
+  """Report failed PDF tasks and exit non-zero, *before* the manifest is written.
+
+  All-or-nothing: exiting here keeps the manifest's written-last commit-marker property, so a
+  consumer never sees partial output. The tracebacks go to stderr (in addition to the log records
+  already emitted per failure) because that is the subprocess contract with
+  ScheduledReportAggregator: it tees stderr into ``CalledProcessError.stderr`` and decides from
+  there whether to send a job-failed alert.
+  """
+  stderr.write(f"{len(failures)} of {total} PDF generation task(s) failed:\n")
+  for store_number, week_end, exc in failures:
+    stderr.write(f"\n--- store {store_number}, week ending {week_end} ---\n")
+    stderr.writelines(format_exception(exc))
+  raise SystemExit(1)
+
+
 def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
   font_input_folder = CWD / "font_input"
   if not font_input_folder.exists():
@@ -236,6 +254,9 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
   if manifest_file is not None:
     manifest = {}
 
+  failures: list[tuple[int, date, BaseException]] = []
+  future_to_week: dict[Future[None], tuple[int, date]] = {}
+
   with (  # noqa: SIM117
     Progress(console=RICH_CONSOLE, auto_refresh=False) as progress,
     ProcessPoolExecutor(
@@ -248,12 +269,6 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
     ) as threadpool,
   ):
     with progress.add_task("[magenta]Processing weeks...") as data_task:
-      proc_futures = []
-
-      def update_completed_progress(future: Future[None]) -> None:
-        future.result()
-        progress.update(data_task, advance=1, total=len(proc_futures), refresh=True)
-
       thread_futures = [
         threadpool.submit(
           process_store_data,
@@ -266,13 +281,30 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
         for store_number, store_df in stores
       ]
       for future in as_completed(thread_futures):
-        result = future.result()
-        for week_args in result:
+        for week_args in future.result():
           proc_future = procpool.submit(start_mp_pdf_gen, *week_args)
-          proc_future.add_done_callback(update_completed_progress)
-          proc_futures.append(proc_future)
+          future_to_week[proc_future] = (week_args[2], week_args[4])  # store number, week-ending date
+
+      # Drain the PDF futures *inside* the progress-task block so the task outlives every
+      # completion -- a future finishing after the task was removed is what produced the
+      # swallowed `KeyError: 0` storm from the old done-callback. Checking each future here is
+      # also what makes worker failures fail the run: a done-callback that raises is logged and
+      # DISCARDED by concurrent.futures, which previously let a failed week exit 0 with a
+      # manifest entry pointing at a PDF that was never written.
+      for proc_future in as_completed(future_to_week):
+        store_number, week_end = future_to_week[proc_future]
+        exc = proc_future.exception()
+        if exc is not None:
+          failures.append((store_number, week_end, exc))
+          logger.error("PDF generation failed for store %s, week ending %s", store_number, week_end, exc_info=exc)
+        progress.update(data_task, advance=1, total=len(future_to_week), refresh=True)
+
+  if failures:
+    _report_failures_and_exit(failures, total=len(future_to_week))
 
   if manifest:
-    assert manifest_file is not None
+    if manifest_file is None:
+      # Not an assert: this guard must survive python -O.
+      raise RuntimeError("manifest was populated but no manifest file path was provided")
     with manifest_file.open("w") as f:
       dump(manifest, f, indent=2, default=str)
