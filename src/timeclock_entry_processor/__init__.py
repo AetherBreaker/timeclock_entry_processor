@@ -25,6 +25,7 @@ else:
 # Standard library imports
 import pickle
 from concurrent.futures import Future, ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from datetime import date, time, timedelta
 from json import dump
 from logging import getLogger
@@ -44,6 +45,9 @@ from timeclock_entry_processor.environment_init_vars import CWD
 from timeclock_entry_processor.pdf_gen import TimelinePDF, init_pdf_worker, start_mp_pdf_gen
 
 if TYPE_CHECKING:
+  # Standard library imports
+  from collections.abc import Generator
+
   # First party imports
   from aeth_ext.errors.exception_trail import ExceptionTrail
   from aeth_ext.logging.bases import TaggedLogRecord
@@ -55,8 +59,9 @@ SHUTDOWN_EXIT_CODE = 143
 consumer can distinguish "told to stop" from a crash. The manifest is never written on this path,
 so ScheduledReportAggregator fails the job either way."""
 
-# The live PDF worker pool, exposed to the shutdown callback below. Set for exactly the lifetime
-# of main()'s executor block; a shutdown signal landing outside that window is a no-op.
+# The live PDF worker pool, exposed to the shutdown callback below. Owned by
+# `_managed_worker_pool`, which keeps it set from pool creation until shutdown() has returned;
+# a shutdown signal landing outside that window is a no-op.
 _active_procpool: ProcessPoolExecutor | None = None
 
 
@@ -109,6 +114,33 @@ def _register_shutdown_policy() -> None:
 
   register_for_shutdown(_kill_worker_pool, phase=ShutdownPhase.THREADED, required=True)
   register_for_shutdown(_terminate_process, phase=ShutdownPhase.THREADED, required=True, priority=LOGGING_TRANSPORT_PRIORITY + 1000)
+
+
+@contextmanager
+def _managed_worker_pool(mp_queue: Queue[TaggedLogRecord], pickled_pdf_inst: bytes) -> Generator[ProcessPoolExecutor]:
+  """Own the PDF worker pool's full lifecycle: create it, register it as the shutdown-kill target,
+  and tear it down.
+
+  Bundling the executor and its `_active_procpool` registration into one context manager keeps the
+  two-resource sequencing correct by construction: the ref is set before any task can be submitted,
+  and cleared only *after* ``shutdown()`` returns -- so `_kill_worker_pool` stays armed through the
+  teardown drain (the long ``wait=True`` window is exactly when a shutdown signal most needs it),
+  and can never observe a live-but-unregistered pool. ``cancel_futures=True`` makes the exception
+  path drop queued work instead of rendering PDFs for a run that is already failing -- a failed or
+  cancelled run regenerates everything next time anyway.
+  """
+  global _active_procpool
+  pool = ProcessPoolExecutor(
+    # max_workers=1,
+    initializer=init_pdf_worker,
+    initargs=(mp_queue, pickled_pdf_inst),
+  )
+  _active_procpool = pool
+  try:
+    yield pool
+  finally:
+    pool.shutdown(wait=True, cancel_futures=True)
+    _active_procpool = None
 
 
 type ProcessResult = list[tuple[list[str], dict[str, str], int, date, date, DataFrame, time, time, Path]]
@@ -291,8 +323,6 @@ def _report_failures_and_exit(failures: list[tuple[int, date, BaseException]], t
 
 
 def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
-  global _active_procpool
-
   _register_shutdown_policy()
 
   font_input_folder = CWD / "font_input"
@@ -324,16 +354,11 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
 
   with (
     Progress(console=RICH_CONSOLE, auto_refresh=False) as progress,
-    ProcessPoolExecutor(
-      # max_workers=1,
-      initializer=init_pdf_worker,
-      initargs=(mp_queue, pickled_pdf_inst),
-    ) as procpool,
+    _managed_worker_pool(mp_queue, pickled_pdf_inst) as procpool,
     ThreadPoolExecutor(
       # max_workers=1,
     ) as threadpool,
   ):
-    _active_procpool = procpool
     with progress.add_task("[magenta]Processing weeks...") as data_task:
       thread_futures = [
         threadpool.submit(
@@ -364,8 +389,6 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
           failures.append((store_number, week_end, exc))
           logger.error("PDF generation failed for store %s, week ending %s", store_number, week_end, exc_info=exc)
         progress.update(data_task, advance=1, total=len(future_to_week), refresh=True)
-
-  _active_procpool = None
 
   if failures:
     _report_failures_and_exit(failures, total=len(future_to_week))
