@@ -45,9 +45,70 @@ from timeclock_entry_processor.pdf_gen import TimelinePDF, init_pdf_worker, star
 
 if TYPE_CHECKING:
   # First party imports
+  from aeth_ext.errors.exception_trail import ExceptionTrail
   from aeth_ext.logging.bases import TaggedLogRecord
 
 logger = getLogger(__name__)
+
+SHUTDOWN_EXIT_CODE = 143
+"""Fixed exit code for the self-termination shutdown policy (128 + SIGTERM by convention), so a
+consumer can distinguish "told to stop" from a crash. The manifest is never written on this path,
+so ScheduledReportAggregator fails the job either way."""
+
+# The live PDF worker pool, exposed to the shutdown callback below. Set for exactly the lifetime
+# of main()'s executor block; a shutdown signal landing outside that window is a no-op.
+_active_procpool: ProcessPoolExecutor | None = None
+
+
+def _kill_worker_pool(trails: tuple[ExceptionTrail, ...]) -> None:
+  """Shutdown-registry callback: immediately terminate the PDF worker pool.
+
+  Registered at default priority so it runs *before* aeth_ext's logging-transport teardown
+  (``LOGGING_TRANSPORT_PRIORITY``): killing the workers first stops new log records from being
+  generated while the in-flight ones flush, and stops burning CPU on results that a cancelled run
+  makes useless -- everything is regenerated next run.
+  """
+  pool = _active_procpool
+  if pool is None:
+    return
+  pool.shutdown(wait=False, cancel_futures=True)
+  # shutdown() never stops a worker mid-task; kill the worker processes directly. `_processes` is
+  # private but stable -- accessed defensively so an executor-internals change degrades to
+  # "workers finish their current task" rather than an error inside the shutdown pass.
+  for proc in tuple((getattr(pool, "_processes", None) or {}).values()):
+    try:
+      proc.kill()
+    except OSError:
+      pass
+
+
+def _terminate_process(trails: tuple[ExceptionTrail, ...]) -> NoReturn:
+  """Shutdown-registry callback: hard-exit once the log flush is done.
+
+  Registered *after* ``LOGGING_TRANSPORT_PRIORITY`` so it runs once aeth_ext has flushed the
+  logging transport (the mp-queue feeder), then acts as if the process had received SIGKILL --
+  this program's own shutdown policy: flush in-flight log records, terminate, and never hold a
+  consumer's shutdown hostage on remaining teardown.
+  """
+  # Standard library imports
+  from os import _exit
+
+  _exit(SHUTDOWN_EXIT_CODE)
+
+
+def _register_shutdown_policy() -> None:
+  """Register this program's shutdown policy with aeth_ext's shutdown registry.
+
+  Gated on ``python -O`` exactly like aeth_ext's own signal handling -- under a plain dev
+  interpreter no handlers are installed and Ctrl+C keeps stock behaviour, so this would never run.
+  """
+  if __debug__:
+    return
+  # First party imports
+  from aeth_ext.errors.shutdown import LOGGING_TRANSPORT_PRIORITY, ShutdownPhase, register_for_shutdown
+
+  register_for_shutdown(_kill_worker_pool, phase=ShutdownPhase.THREADED, required=True)
+  register_for_shutdown(_terminate_process, phase=ShutdownPhase.THREADED, required=True, priority=LOGGING_TRANSPORT_PRIORITY + 1000)
 
 
 type ProcessResult = list[tuple[list[str], dict[str, str], int, date, date, DataFrame, time, time, Path]]
@@ -230,6 +291,10 @@ def _report_failures_and_exit(failures: list[tuple[int, date, BaseException]], t
 
 
 def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
+  global _active_procpool
+
+  _register_shutdown_policy()
+
   font_input_folder = CWD / "font_input"
   if not font_input_folder.exists():
     raise FileNotFoundError(f"Font input folder not found at {font_input_folder}. Please create it and add necessary font files.")
@@ -257,7 +322,7 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
   failures: list[tuple[int, date, BaseException]] = []
   future_to_week: dict[Future[None], tuple[int, date]] = {}
 
-  with (  # noqa: SIM117
+  with (
     Progress(console=RICH_CONSOLE, auto_refresh=False) as progress,
     ProcessPoolExecutor(
       # max_workers=1,
@@ -268,6 +333,7 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
       # max_workers=1,
     ) as threadpool,
   ):
+    _active_procpool = procpool
     with progress.add_task("[magenta]Processing weeks...") as data_task:
       thread_futures = [
         threadpool.submit(
@@ -298,6 +364,8 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
           failures.append((store_number, week_end, exc))
           logger.error("PDF generation failed for store %s, week ending %s", store_number, week_end, exc_info=exc)
         progress.update(data_task, advance=1, total=len(future_to_week), refresh=True)
+
+  _active_procpool = None
 
   if failures:
     _report_failures_and_exit(failures, total=len(future_to_week))
