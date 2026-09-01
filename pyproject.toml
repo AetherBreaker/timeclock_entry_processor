@@ -4,7 +4,7 @@
   description     = "Add your description here"
   requires-python = ">=3.14"
   dependencies    = [
-    "aeth-ext>=8.0.6",
+    "aeth-ext>=8.0.7",
     "aiologic>=0.16.0",
     "fpdf2>=2.8.7",
     "pandas[performance]>=3.0.2",
@@ -22,8 +22,8 @@
 
 [dependency-groups]
   dev = [
-    "pandas-stubs>=3.0.0",
     "aeth-devkit>=7.0.2",
+    "pandas-stubs>=3.0.0",
     "poethepoet>=0.46.0",
     "types-python-dateutil>=2.9.0",
   ]
@@ -56,13 +56,7 @@
   extends = "../pyproject.toml"
 
 [tool.pytest.ini_options]
-  addopts      = [
-    "--cov",
-    "--cov-report=term-missing",
-    "--strict-markers",
-    "--strict-config",
-    "-ra"
-  ]
+  addopts      = ["--cov", "--cov-report=term-missing", "--strict-markers", "--strict-config", "-ra"]
   cache_dir    = ".cache/pytest"
   testpaths    = ["tests"]
   xfail_strict = true
@@ -81,7 +75,7 @@
   ]
 
   [tool.uv.sources]
-    aeth-ext  = [
+    aeth-ext    = [
       { index = "SFTPyPI" },
       # Registry-only so both platforms lock the same published version. For quick local
       # aeth-ext dev/testing, swap in the editable install:
