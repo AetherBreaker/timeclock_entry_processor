@@ -4,7 +4,7 @@
   description     = "Add your description here"
   requires-python = ">=3.14"
   dependencies    = [
-    "aeth-ext>=3.3.5",
+    "aeth-ext>=8.0.6",
     "aiologic>=0.16.0",
     "fpdf2>=2.8.7",
     "pandas[performance]>=3.0.2",
@@ -82,8 +82,11 @@
 
   [tool.uv.sources]
     aeth-ext  = [
-      { index = "SFTPyPI", marker = "sys_platform == 'linux'" },
-      { path = "../aeth_ext", editable = true, marker = "sys_platform == 'win32'" },
+      { index = "SFTPyPI" },
+      # Registry-only so both platforms lock the same published version. For quick local
+      # aeth-ext dev/testing, swap in the editable install:
+      # { index = "SFTPyPI", marker = "sys_platform == 'linux'" },
+      # { path = "../aeth_ext", editable = true, marker = "sys_platform == 'win32'" },
     ]
     aeth-devkit = [
       { index = "SFTPyPI" },
