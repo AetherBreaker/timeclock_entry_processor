@@ -598,7 +598,10 @@ def init_pdf_worker(logging_queue: Queue[TaggedLogRecord], pickled_bytes: bytes)
   # First party imports
   from aeth_ext import initialize
 
-  initialize(logging_queue, logging="to_queue")
+  # No signal handlers in pool workers: they are executor-owned, and the parent's shutdown policy
+  # (see `_kill_worker_pool` in __init__) terminates them directly -- each worker running its own
+  # v8 shutdown ladder would only race that.
+  initialize(logging_queue, logging="to_queue", install_signal_handlers=False)
 
   global _PDF_TEMPLATE_BYTES
   _PDF_TEMPLATE_BYTES = pickled_bytes
