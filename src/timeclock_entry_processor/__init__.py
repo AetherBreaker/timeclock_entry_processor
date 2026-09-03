@@ -358,37 +358,37 @@ def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path
     ThreadPoolExecutor(
       # max_workers=1,
     ) as threadpool,
+    progress.add_task("[magenta]Processing weeks...") as data_task,
   ):
-    with progress.add_task("[magenta]Processing weeks...") as data_task:
-      thread_futures = [
-        threadpool.submit(
-          process_store_data,
-          int(store_number),  # type: ignore
-          store_df,
-          employee_id_to_group,
-          output_folder,
-          manifest,
-        )
-        for store_number, store_df in stores
-      ]
-      for future in as_completed(thread_futures):
-        for week_args in future.result():
-          proc_future = procpool.submit(start_mp_pdf_gen, *week_args)
-          future_to_week[proc_future] = (week_args[2], week_args[4])  # store number, week-ending date
+    thread_futures = [
+      threadpool.submit(
+        process_store_data,
+        int(store_number),  # type: ignore
+        store_df,
+        employee_id_to_group,
+        output_folder,
+        manifest,
+      )
+      for store_number, store_df in stores
+    ]
+    for future in as_completed(thread_futures):
+      for week_args in future.result():
+        proc_future = procpool.submit(start_mp_pdf_gen, *week_args)
+        future_to_week[proc_future] = (week_args[2], week_args[4])  # store number, week-ending date
 
-      # Drain the PDF futures *inside* the progress-task block so the task outlives every
-      # completion -- a future finishing after the task was removed is what produced the
-      # swallowed `KeyError: 0` storm from the old done-callback. Checking each future here is
-      # also what makes worker failures fail the run: a done-callback that raises is logged and
-      # DISCARDED by concurrent.futures, which previously let a failed week exit 0 with a
-      # manifest entry pointing at a PDF that was never written.
-      for proc_future in as_completed(future_to_week):
-        store_number, week_end = future_to_week[proc_future]
-        exc = proc_future.exception()
-        if exc is not None:
-          failures.append((store_number, week_end, exc))
-          logger.error("PDF generation failed for store %s, week ending %s", store_number, week_end, exc_info=exc)
-        progress.update(data_task, advance=1, total=len(future_to_week), refresh=True)
+    # Drain the PDF futures *inside* the progress-task block so the task outlives every
+    # completion -- a future finishing after the task was removed is what produced the
+    # swallowed `KeyError: 0` storm from the old done-callback. Checking each future here is
+    # also what makes worker failures fail the run: a done-callback that raises is logged and
+    # DISCARDED by concurrent.futures, which previously let a failed week exit 0 with a
+    # manifest entry pointing at a PDF that was never written.
+    for proc_future in as_completed(future_to_week):
+      store_number, week_end = future_to_week[proc_future]
+      exc = proc_future.exception()
+      if exc is not None:
+        failures.append((store_number, week_end, exc))
+        logger.error("PDF generation failed for store %s, week ending %s", store_number, week_end, exc_info=exc)
+      progress.update(data_task, advance=1, total=len(future_to_week), refresh=True)
 
   if failures:
     _report_failures_and_exit(failures, total=len(future_to_week))
