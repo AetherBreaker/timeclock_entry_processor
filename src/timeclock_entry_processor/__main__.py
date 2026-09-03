@@ -1,3 +1,5 @@
+"""Typer CLI entry point; connects to the parent's log queue when launched as a subprocess."""
+
 # Standard library imports
 from multiprocessing import Queue
 from multiprocessing.managers import BaseManager
@@ -23,9 +25,13 @@ CWD = Path.cwd()
 
 
 class ClientQueueManager(BaseManager):
+  """Client side of the parent process's queue manager; `get_shared_queue` is registered at import."""
+
   if TYPE_CHECKING:
 
-    def get_shared_queue(self) -> Queue: ...
+    def get_shared_queue(self) -> Queue:
+      """Proxy for the parent's shared log-record queue."""
+      ...
 
 
 ClientQueueManager.register("get_shared_queue")
@@ -40,6 +46,7 @@ def cli(
   output_folder: Annotated[Path, typer.Argument()] = CWD / "timeclock_entry_processor_output",
   logging_queue_authkey: Annotated[str | None, typer.Argument()] = None,
 ):
+  """Generate per-store-week timeline PDFs from `csv_file`, optionally writing a manifest of outputs."""
   if not csv_file.exists():
     RICH_CONSOLE.print(f"[red]Error: File '{csv_file}' does not exist.[/red]")
     raise typer.Exit(code=1)

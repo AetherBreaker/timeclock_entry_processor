@@ -1,3 +1,5 @@
+"""Employee id-to-name/group lookup, loaded from the newest CSV in `employee_input/`."""
+
 if __name__ == "__main__":
   # First party imports
   from aeth_ext import initialize
@@ -51,6 +53,7 @@ def _latest_manual_employee_list_csv() -> Path:
 
 
 def get_employee_info() -> DataFrame:  # sourcery skip: extract-method
+  """Load id, first/last name and group from the latest manual employee list."""
   employee_df = read_csv(
     _latest_manual_employee_list_csv(),
     header=0,

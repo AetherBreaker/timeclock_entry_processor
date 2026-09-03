@@ -1,5 +1,4 @@
-"""
-Employee Time Clock Entry PDF Generator
+"""Employee Time Clock Entry PDF Generator.
 
 Reads time clock data from CSV and generates a PDF timeline visualization
 showing when each employee was clocked in. Each employee is color-coded,
@@ -118,8 +117,7 @@ def _register_shutdown_policy() -> None:
 
 @contextmanager
 def _managed_worker_pool(mp_queue: Queue[TaggedLogRecord], pickled_pdf_inst: bytes) -> Generator[ProcessPoolExecutor]:
-  """Own the PDF worker pool's full lifecycle: create it, register it as the shutdown-kill target,
-  and tear it down.
+  """Own the PDF worker pool's full lifecycle: create it, register it as the shutdown-kill target, and tear it down.
 
   Bundling the executor and its `_active_procpool` registration into one context manager keeps the
   two-resource sequencing correct by construction: the ref is set before any task can be submitted,
@@ -255,6 +253,8 @@ def calculate_time_range(df: DataFrame) -> tuple[time, time]:
 
 
 class ManifestEntry(TypedDict):
+  """Output paths recorded per store-week for the consumer of the manifest."""
+
   csv: Path
   pdf: Path
 
@@ -266,7 +266,11 @@ def process_store_data(
   output_base: Path,
   manifest: dict[int, dict[str, ManifestEntry]] | None = None,
 ) -> ProcessResult:
+  """Split one store's entries into weeks, write each week's CSV, and return the PDF task args per week.
 
+  Runs on the thread pool; the returned tuples are what `main` submits to the process pool, so the CSV
+  (and manifest entry) exist before the PDF job is ever queued.
+  """
   unique_employees: list[str] = store_df["Employee Name"].unique().tolist()
 
   weeks = group_by_weeks(store_df)
@@ -323,6 +327,10 @@ def _report_failures_and_exit(failures: list[tuple[int, date, BaseException]], t
 
 
 def main(mp_queue: Queue[TaggedLogRecord], input_path: Path, output_folder: Path, manifest_file: Path | None) -> None:
+  """Fan every store out to the thread pool, every store-week to the process pool, then write the manifest.
+
+  Exits non-zero via `_report_failures_and_exit` before the manifest is written if any PDF task failed.
+  """
   _register_shutdown_policy()
 
   font_input_folder = CWD / "font_input"

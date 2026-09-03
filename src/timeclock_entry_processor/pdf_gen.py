@@ -1,3 +1,5 @@
+"""Timeline PDF rendering (fpdf2) and the process-pool worker entry points that drive it."""
+
 if __name__ == "__main__":
   # First party imports
   from aeth_ext import initialize
@@ -51,6 +53,7 @@ MIN_WORDS_FOR_FULL_NAME = 2  # Minimum word count to attempt first/last name spl
 
 
 def to_255(r: float, g: float, b: float):
+  """Scale unit-interval RGB to 0-255 ints."""
   return (int(r * 255), int(g * 255), int(b * 255))
 
 
@@ -73,7 +76,10 @@ def _cw_constant(value):  # pyright: ignore[reportMissingParameterType] # noqa: 
 
 
 class TimelinePDF(FPDF):
+  """Landscape A4 timeline renderer; built once, pickled, and restored per worker task."""
+
   def __init__(self, font_input_folder: Path):
+    """Register the Roboto Mono fonts from `font_input_folder` and make the instance picklable."""
     super().__init__(orientation="L", unit="mm", format="A4")  # Landscape orientation
     self.set_auto_page_break(False)
 
@@ -128,6 +134,7 @@ class TimelinePDF(FPDF):
   def generate_employee_colors(self, employees: list[str], employee_id_to_group: dict[str, str]) -> EmployeeColors:  # noqa: C901, PLR0912
     # sourcery skip: extract-method, move-assign, use-named-expression
     """Generate distinct colors for each employee using HSV color space.
+
     Group colors are hard-coded for consistency. Employee colors are generated
     dynamically while avoiding the hues used by group colors.
     """
@@ -618,6 +625,7 @@ def start_mp_pdf_gen(  # noqa: PLR0917
   max_time: time,
   pdf_path: Path,
 ):
+  """Pool-worker task: restore the pickled template, render one store-week, and write it to `pdf_path`."""
   logger.info("Processing Store %s\n    Date range: %s to %s", store_number, week_start, week_end)
   pdf: TimelinePDF = pickle.loads(_PDF_TEMPLATE_BYTES)  # type: ignore[arg-type]
   pdf.configure(unique_employees, employee_id_to_group, store_number)

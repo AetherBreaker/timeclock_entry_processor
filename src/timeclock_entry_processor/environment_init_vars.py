@@ -1,3 +1,5 @@
+"""Process-wide path constants, resolved once at import."""
+
 # Standard library imports
 import os
 from logging import getLogger
